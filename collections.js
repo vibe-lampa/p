@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿(function () {
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿(function () {
   'use strict';
 
   function Collection(data) {
@@ -2322,12 +2322,26 @@
   }
 
   function getCardKey(card_data) {
-    return getCardSource(card_data) + ':' + getCardMethod(card_data) + ':' + getCardId(card_data);
+    var id = getCardId(card_data);
+    if (!id) return '';
+    return getCardSource(card_data) + ':' + getCardMethod(card_data) + ':' + id;
   }
 
   function getMembershipMap() {
     try {
-      var raw = Lampa.Storage.get('cub_collections_membership', '{}') || '{}';
+      var user = getAccount();
+      if (!user || !user.token) return {};
+
+      var uid = String(getUserId(user) || '');
+      if (!uid) return {};
+
+      var legacy = Lampa.Storage.get('cub_collections_membership', null);
+      if (legacy) {
+        try { Lampa.Storage.set('cub_collections_membership', {}); } catch (e) {}
+      }
+
+      var storage_key = 'cub_collections_membership_' + uid;
+      var raw = Lampa.Storage.get(storage_key, '{}') || '{}';
       if (typeof raw === 'string') return JSON.parse(raw || '{}') || {};
       return raw || {};
     }
@@ -2338,7 +2352,14 @@
 
   function setMembershipMap(map) {
     try {
-      Lampa.Storage.set('cub_collections_membership', map || {});
+      var user = getAccount();
+      if (!user || !user.token) return;
+
+      var uid = String(getUserId(user) || '');
+      if (!uid) return;
+
+      var storage_key = 'cub_collections_membership_' + uid;
+      Lampa.Storage.set(storage_key, map || {});
     }
     catch (e) {}
   }
