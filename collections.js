@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿(function () {
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿(function () {
   'use strict';
 
   function Collection(data) {
@@ -501,7 +501,13 @@
   function normalizeGroupLabel(label) {
     var s = (label || '').toString().trim();
     if (!s) return '';
-    if (/^[A-Z0-9 _-]{2,}$/.test(s)) return s;
+    var has_letters = /[A-ZА-ЯЁ]/.test(s);
+    var is_upper = has_letters && s === s.toUpperCase();
+    if (is_upper) {
+      if (s.length <= 4) return s;
+      var low = s.toLowerCase();
+      return low.charAt(0).toUpperCase() + low.slice(1);
+    }
     return s.charAt(0).toUpperCase() + s.slice(1);
   }
 
@@ -510,7 +516,8 @@
     if (!m) return '';
     var tag = m[1] || '';
     if (!tag) return '';
-    return tag.toUpperCase();
+    tag = (tag + '').toLowerCase().replace(/ё/g, 'е');
+    return canonicalizeExplicitGroup(tag);
   }
 
   function pickBracketGroup(title) {
