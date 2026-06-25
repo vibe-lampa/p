@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿(function () {
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿(function () {
   'use strict';
 
   function Collection(data) {
@@ -2167,7 +2167,7 @@
             };
 
             if (next_state) {
-              addCardToCollectionInternal(id, card_data, function (ok) {
+              addCardToCollectionInternal(id, card_data, elem.collection, function (ok) {
                 if (!ok) rollback();
               });
             } else {
@@ -2507,9 +2507,41 @@
   }
 
   function addCardToCollectionInternal(collection_id, card_data, onResult) {
+    var collection = null;
+    if (arguments.length >= 4) {
+      collection = arguments[2] || null;
+      onResult = arguments[3];
+    }
+    else if (arguments.length === 3 && typeof arguments[2] === 'object') {
+      collection = arguments[2] || null;
+      onResult = null;
+    }
     var card_id = getCardId(card_data);
     if (!collection_id) return Lampa.Noty.show('Не выбрана коллекция');
     if (!card_id) return Lampa.Noty.show('Не удалось определить карточку');
+
+    var pickAutoCoverPath = function (data) {
+      var p = '';
+      try {
+        p = data && (data.backdrop_path || data.poster_path || data.backdrop || data.poster || '') ? (data.backdrop_path || data.poster_path || data.backdrop || data.poster || '') : '';
+      }
+      catch (e) {
+        p = '';
+      }
+      p = (p || '').toString().trim();
+      if (!p) return '';
+      if (/^https?:\/\//i.test(p)) return '';
+      return p;
+    };
+
+    var shouldAutoCover = function (col) {
+      if (!col) return false;
+      var has_cover = (col.backdrop_path || col.poster_path || '').toString().trim();
+      if (has_cover) return false;
+      var c = 0;
+      try { c = parseInt(col.items_count !== undefined ? col.items_count : col.items !== undefined ? col.items : col.count, 10) || 0; } catch (e) { c = 0; }
+      return c <= 0;
+    };
 
     Lampa.Loading.start(function () {
       Api.clear();
@@ -2526,6 +2558,22 @@
       Lampa.Bell.push({
         text: 'Добавлено в коллекцию'
       });
+
+      try {
+        if (collection && shouldAutoCover(collection)) {
+          var cover_path = pickAutoCoverPath(card_data);
+          if (cover_path) {
+            try { collection.backdrop_path = cover_path; } catch (e) {}
+            try { collection.items_count = (parseInt(collection.items_count, 10) || 0) + 1; } catch (e) {}
+            Api.coverCollection({
+              id: collection_id,
+              backdrop_path: cover_path
+            }, function () {}, function () {});
+          }
+        }
+      }
+      catch (e) {}
+
       if (onResult) onResult(true);
     }, function (err) {
       Lampa.Loading.stop();
@@ -2750,11 +2798,46 @@
     }
 
     function initHeadSettingsButton() {
-      if (window.cub_collections_head_settings_button) return;
+      if (window.cub_collections_head_settings_inited) return;
+      window.cub_collections_head_settings_inited = true;
+
+      var isAlive = function (btn) {
+        try {
+          var node = btn && btn[0] ? btn[0] : null;
+          if (!node) return false;
+          if (!node.parentNode) return false;
+          if (!document || !document.body) return true;
+          return document.body.contains(node);
+        }
+        catch (e) {
+          return false;
+        }
+      };
+
+      var updateVisibility = function (btn) {
+        try {
+          var act = Lampa.Activity && Lampa.Activity.active ? Lampa.Activity.active() : null;
+          var comp = act && act.component ? act.component : '';
+          if (comp === 'cub_collections_main' || comp === 'cub_collections_collection' || comp === 'cub_collections_view') btn.show();
+          else btn.hide();
+        }
+        catch (e) {}
+      };
 
       var tryAdd = function () {
-        if (!Lampa.Head || !Lampa.Head.addIcon || !Lampa.Head.render) return false;
-        if (!Lampa.Head.render(true)) return false;
+        var existing = window.cub_collections_head_settings_button;
+        if (existing) {
+          if (!isAlive(existing)) {
+            try { existing.remove(); } catch (e) {}
+            window.cub_collections_head_settings_button = null;
+          } else {
+            updateVisibility(existing);
+            return true;
+          }
+        }
+
+        if (!Lampa.Head || !Lampa.Head.addIcon) return false;
+        if (Lampa.Head.render && !Lampa.Head.render(true)) return false;
 
         try {
           var icon = '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M19.14,12.94c.04-.31,.06-.63,.06-.94s-.02-.63-.06-.94l2.03-1.58c.18-.14,.23-.41,.12-.61l-1.92-3.32c-.11-.2-.36-.28-.57-.2l-2.39,.96c-.5-.38-1.04-.7-1.64-.94l-.36-2.54c-.03-.22-.22-.38-.44-.38h-3.84c-.22,0-.41,.16-.44,.38l-.36,2.54c-.6,.24-1.14,.56-1.64,.94l-2.39-.96c-.21-.08-.46,0-.57,.2l-1.92,3.32c-.11,.2-.06,.47,.12,.61l2.03,1.58c-.04,.31-.06,.63-.06,.94s.02,.63,.06,.94l-2.03,1.58c-.18,.14,.23,.41,.12,.61l1.92,3.32c.11,.2,.36,.28,.57,.2l2.39-.96c.5,.38,1.04,.7,1.64,.94l.36,2.54c.03,.22,.22,.38,.44,.38h3.84c.22,0,.41-.16,.44-.38l.36-2.54c.6-.24,1.14-.56,1.64-.94l2.39,.96c.21,.08,.46,0,.57-.2l1.92-3.32c.11-.2,.06-.47-.12-.61l-2.03-1.58Zm-7.14,2.56c-1.93,0-3.5-1.57-3.5-3.5s1.57-3.5,3.5-3.5,3.5,1.57,3.5,3.5-1.57,3.5-3.5,3.5Z"/></svg>';
@@ -2764,17 +2847,7 @@
           btn.addClass('open--collections-settings');
           window.cub_collections_head_settings_button = btn;
 
-          var update = function () {
-            var act = Lampa.Activity && Lampa.Activity.active ? Lampa.Activity.active() : null;
-            var comp = act && act.component ? act.component : '';
-            if (comp === 'cub_collections_main' || comp === 'cub_collections_collection' || comp === 'cub_collections_view') btn.show();
-            else btn.hide();
-          };
-
-          update();
-          Lampa.Listener.follow('activity', function (e) {
-            if (e.type === 'start') update();
-          });
+          updateVisibility(btn);
 
           return true;
         }
@@ -2792,6 +2865,14 @@
       };
 
       loop();
+
+      try {
+        Lampa.Listener.follow('activity', function (e) {
+          if (e.type !== 'start') return;
+          tryAdd();
+        });
+      }
+      catch (e) {}
     }
 
     if (window.appready) initHeadSettingsButton();
