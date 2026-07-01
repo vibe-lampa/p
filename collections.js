@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿(function () {
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿(function () {
   'use strict';
 
   function Collection(data) {
@@ -14,13 +14,15 @@
       if (!this.item) return;
 
       this.img = this.item.find ? this.item.find('.card__img') : null;
+      // Сохраняем DOM-элемент для прямого доступа к style
+      this.img_el = this.img && this.img[0] ? this.img[0] : (this.img && this.img.nodeType === 1 ? this.img : null);
       this.icon = this.item.find ? this.item.find('.cub-collection-card__user-icon img') : null;
 
       if (data && data.__create_collection) {
         this.item.classList.add('cub-collection-card--create');
 
         var view = this.item.find('.card__view');
-        if (this.img) this.img.style.opacity = '1';
+        if (this.img_el) this.img_el.style.opacity = '1';
         if (view) {
           var bgicon = document.createElement('div');
           bgicon.className = 'cub-collection-create__bgicon';
@@ -46,27 +48,163 @@
       try {
         var st = getSettings();
         var use_stack = st && st.cover_view === 'stack';
-        this.item.classList.toggle('cub-collection-card--stack', !!use_stack);
-        var view2 = this.item.find('.card__view');
+        var use_folder = st && st.cover_view === 'folder';
+        // this.item может быть jQuery-объектом — берём DOM-элемент для classList
+        var item_dom = this.item && this.item[0] ? this.item[0] : (this.item && this.item.nodeType === 1 ? this.item : null);
 
-        if (use_stack && view2) {
-          var stack = view2.querySelector('.cub-collection-card__stack');
+        if (item_dom && item_dom.classList) {
+          // classList.toggle с двумя аргументами не работает в Chromium 38
+          if (use_stack && item_dom.className.indexOf('cub-collection-card--stack') === -1) {
+              item_dom.className += ' cub-collection-card--stack';
+            }
+          if (use_folder && item_dom.className.indexOf('cub-collection-card--folder') === -1) {
+              item_dom.className += ' cub-collection-card--folder cub-collection-card--stack';
+            }
+          if (!use_stack && !use_folder) {
+            item_dom.className = (item_dom.className || '').replace(/\s*cub-collection-card--stack/g, '').replace(/\s*cub-collection-card--folder/g, '');
+          }
+        }
+        var view2 = this.item.find('.card__view');
+        // view2 может быть jQuery/Lampa-объектом — берём реальный DOM-элемент
+        var view2_el = view2 && view2[0] ? view2[0] : (view2 && view2.nodeType === 1 ? view2 : null);
+        // Ещё один fallback: если find вернул сам элемент с querySelector
+        if (!view2_el && view2 && typeof view2.querySelector === 'function') view2_el = view2;
+        // Последний fallback: ищем через item_dom напрямую
+        if (!view2_el && item_dom) view2_el = item_dom.querySelector('.card__view');
+
+        if ((use_stack || use_folder) && view2_el) {
+          // Принудительно задаём position:relative на card__view (Chromium 38 может не подхватить CSS)
+          view2_el.style.position = 'relative';
+          // overflow:hidden только для стека, не для папки (иначе стрипы обрежутся)
+          if (!use_folder) view2_el.style.overflow = 'hidden';
+          var stack = view2_el.querySelector('.cub-collection-card__stack');
           if (!stack) {
             stack = document.createElement('div');
             stack.className = 'cub-collection-card__stack';
-            stack.innerHTML = '<div class="cub-collection-card__stack-strip cub-collection-card__stack-strip--1 cub-collection-card__stack-img"></div><div class="cub-collection-card__stack-strip cub-collection-card__stack-strip--2 cub-collection-card__stack-img"></div><div class="cub-collection-card__stack-strip cub-collection-card__stack-strip--3 cub-collection-card__stack-img"></div><div class="cub-collection-card__stack-main cub-collection-card__stack-img"></div>';
-            view2.insertBefore(stack, view2.firstChild);
+            // В режиме папки первый стрип получает класс folder-tab
+            var strip1_class = use_folder
+              ? 'cub-collection-card__stack-strip cub-collection-card__stack-strip--1 cub-collection-card__stack-img cub-collection-card__folder-tab'
+              : 'cub-collection-card__stack-strip cub-collection-card__stack-strip--1 cub-collection-card__stack-img';
+            stack.innerHTML = '<div class="' + strip1_class + '"></div><div class="cub-collection-card__stack-strip cub-collection-card__stack-strip--2 cub-collection-card__stack-img"></div><div class="cub-collection-card__stack-strip cub-collection-card__stack-strip--3 cub-collection-card__stack-img"></div><div class="cub-collection-card__stack-main cub-collection-card__stack-img"></div>';
+            // В режиме папки добавляем SVG-clipPath и убираем стрипы
+            if (use_folder) {
+              // Скрываем стрипы — в режиме папки они не нужны
+              var strips_to_hide = stack.querySelectorAll('.cub-collection-card__stack-strip');
+              for (var sh = 0; sh < strips_to_hide.length; sh++) {
+                strips_to_hide[sh].style.display = 'none';
+              }
+            }
+            view2_el.insertBefore(stack, view2_el.firstChild);
           }
+          // Принудительные inline-стили для всех элементов стека (Chromium 38)
+          var stack_imgs = Array.prototype.slice.call(stack.querySelectorAll('.cub-collection-card__stack-img') || []);
+          for (var si = 0; si < stack_imgs.length; si++) {
+            stack_imgs[si].style.position = 'absolute';
+            stack_imgs[si].style.top = '0';
+            stack_imgs[si].style.left = '0';
+            stack_imgs[si].style.right = '0';
+            stack_imgs[si].style.bottom = '0';
+            stack_imgs[si].style.width = '100%';
+            stack_imgs[si].style.height = '100%';
+            stack_imgs[si].style.backgroundSize = 'cover';
+            stack_imgs[si].style.backgroundPosition = 'center center';
+            stack_imgs[si].style.backgroundRepeat = 'no-repeat';
+          }
+          // Стек-контейнер
+          stack.style.position = 'absolute';
+          stack.style.top = '0';
+          stack.style.left = '0';
+          stack.style.right = '0';
+          stack.style.bottom = '0';
+          stack.style.width = '100%';
+          stack.style.height = '100%';
           this.stack = stack;
           this.stack_main = stack ? stack.querySelector('.cub-collection-card__stack-main') : null;
           this.stack_strips = stack ? Array.prototype.slice.call(stack.querySelectorAll('.cub-collection-card__stack-strip') || []) : [];
           this.stack_items = stack ? Array.prototype.slice.call(stack.querySelectorAll('.cub-collection-card__stack-img') || []) : [];
-          if (this.img) this.img.style.opacity = '0';
+
+          // Режим папки — webkit-mask на stack-main
+          if (use_folder && this.stack_main) {
+            // Маска — path папки в нормализованных координатах (без transform/offset)
+            // Оригинал translate(-41.064705,-208.49026) применён к точкам напрямую
+            // viewBox = реальные размеры фигуры
+            var folder_svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 75.057 57.928" preserveAspectRatio="none">' +
+              '<path d="' +
+                'M 4.233,57.928 ' +           // нижний левый
+                'Q 0,57.928 0,53.695 ' +       // скругление нижнего левого
+                'L 0,4.233 ' +                 // левый край вверх
+                'Q 0,0 4.233,0 ' +             // скругление верхнего левого язычка
+                'L 30.357,0 ' +               // верх язычка
+                'C 32.094,0 33.421,1.283 35.166,2.566 ' + // скос язычка
+                'C 36.912,3.848 40.933,8.341 40.933,8.341 ' + // конец скоса
+                'L 70.824,8.341 ' +           // правый верх тела
+                'Q 75.057,8.341 75.057,12.574 ' + // скругление правого верхнего тела
+                'L 75.057,53.695 ' +          // правый край вниз
+                'Q 75.057,57.928 70.824,57.928 ' + // скругление правого нижнего
+                'Z' +
+              '" fill="white"/></svg>';
+            var mask_url = 'url("data:image/svg+xml,' + encodeURIComponent(folder_svg) + '")';
+            this.stack_main.style.webkitMaskImage = mask_url;
+            this.stack_main.style.maskImage = mask_url;
+            this.stack_main.style.webkitMaskSize = '100% 100%';
+            this.stack_main.style.maskSize = '100% 100%';
+            this.stack_main.style.webkitMaskRepeat = 'no-repeat';
+            this.stack_main.style.maskRepeat = 'no-repeat';
+            this.stack_main.style.top = '0';
+            this.stack_main.style.left = '0';
+            this.stack_main.style.right = '0';
+            this.stack_main.style.bottom = '0';
+            this.stack_main.style.zIndex = '4';
+            this.stack_main.style.borderRadius = '0';
+            this.stack_main.style.webkitBorderRadius = '0';
+            this.stack_main.style.boxShadow = 'none';
+            this.stack_main.style.webkitBoxShadow = 'none';
+
+            // Рельеф поверх — paths из оригинального SVG папки, цвета заменены на полупрозрачные
+            if (!this.stack_main.querySelector('.cub-folder-relief')) {
+              var relief = document.createElement('div');
+              relief.className = 'cub-folder-relief';
+              relief.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;z-index:5;pointer-events:none;';
+              relief.innerHTML =
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 75.057 57.928" width="100%" height="100%" preserveAspectRatio="none">' +
+                  '<defs>' +
+                    '<linearGradient id="cub_fg1" x1="0" y1="0" x2="1" y2="0" gradientUnits="objectBoundingBox">' +
+                      '<stop offset="0%" stop-color="rgba(255,255,255,0.22)"/>' +
+                      '<stop offset="100%" stop-color="rgba(255,255,255,0.04)"/>' +
+                    '</linearGradient>' +
+                    '<linearGradient id="cub_fg2" x1="0" y1="0" x2="0" y2="1" gradientUnits="objectBoundingBox">' +
+                      '<stop offset="0%" stop-color="rgba(0,0,0,0.35)"/>' +
+                      '<stop offset="100%" stop-color="rgba(0,0,0,0.0)"/>' +
+                    '</linearGradient>' +
+                  '</defs>' +
+                  // Светлый блик на теле папки
+                  '<rect x="0" y="8.341" width="75.057" height="49.587" fill="url(#cub_fg1)"/>' +
+                  // Тёмный градиент на язычке
+                  '<path d="M 4.233,0 L 30.357,0 C 32.094,0 33.421,1.283 35.166,2.566 C 36.912,3.848 40.933,8.341 40.933,8.341 L 0,8.341 L 0,4.233 Q 0,0 4.233,0 Z" fill="url(#cub_fg2)"/>' +
+                  // Тонкая тёмная линия — граница язычка и тела
+                  '<line x1="0" y1="8.6" x2="75.057" y2="8.6" stroke="rgba(0,0,0,0.4)" stroke-width="0.5"/>' +
+                  // Светлая линия — верхний край язычка
+                  '<path d="M 0.3,8.1 L 0.3,4.233 Q 0.3,0.3 4.233,0.3 L 30.357,0.3 C 32,0.3 33.2,1.5 34.9,2.7 L 40.5,8.1" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="0.4"/>' +
+                  // Обводка всей папки
+                  '<path d="M 4.233,57.928 Q 0,57.928 0,53.695 L 0,4.233 Q 0,0 4.233,0 L 30.357,0 C 32.094,0 33.421,1.283 35.166,2.566 C 36.912,3.848 40.933,8.341 40.933,8.341 L 70.824,8.341 Q 75.057,8.341 75.057,12.574 L 75.057,53.695 Q 75.057,57.928 70.824,57.928 Z" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="0.3"/>' +
+                '</svg>';
+              this.stack_main.appendChild(relief);
+            }
+          }
+
+          if (this.img_el) {
+            this.img_el.style.opacity = '0';
+            this.img_el.style.display = 'none';
+          }
         } else {
-          if (this.img) this.img.style.opacity = '';
-          if (view2) {
-            var stack2 = view2.querySelector('.cub-collection-card__stack');
-            if (stack2) stack2.remove();
+          if (this.img_el) {
+            this.img_el.style.opacity = '';
+            this.img_el.style.display = '';
+          }
+          if (view2_el) {
+            var stack2 = view2_el.querySelector('.cub-collection-card__stack');
+            // .remove() не поддерживается в Chromium 38 — используем parentNode.removeChild
+            if (stack2 && stack2.parentNode) stack2.parentNode.removeChild(stack2);
           }
           this.stack = null;
           this.stack_main = null;
@@ -81,7 +219,10 @@
       var user_wrap = this.item.find('.cub-collection-card__user');
 
       if (bottom_wrap && liked_wrap && user_wrap) {
-        liked_wrap.before(user_wrap);
+        // .before() не поддерживается в старых браузерах (Chromium 38)
+        if (liked_wrap.parentNode) {
+          liked_wrap.parentNode.insertBefore(user_wrap, liked_wrap);
+        }
         user_wrap.style.marginLeft = 'auto';
       }
 
@@ -113,13 +254,13 @@
     this.image = function () {
       var _this = this;
 
-      if (this.img) {
-        this.img.onload = function () {
+      if (this.img_el) {
+        this.img_el.onload = function () {
           try { _this.item.classList.add('card--loaded'); } catch (e) {}
         };
 
-        this.img.onerror = function () {
-          _this.img.src = './img/img_load.svg';
+        this.img_el.onerror = function () {
+          _this.img_el.src = './img/img_load.svg';
         };
       }
 
@@ -164,7 +305,7 @@
         if (_this2.onFocus) _this2.onFocus(_this2.item, data);
         try {
           var st = getSettings();
-          if (!st || st.cover_view !== 'stack') return;
+          if (!st || (st.cover_view !== 'stack' && st.cover_view !== 'folder')) return;
           var id = getCollectionId(data);
           if (!id) return;
           if (cover_stack_cache && cover_stack_cache[String(id)]) return;
@@ -351,25 +492,30 @@
 
 
     this.visible = function () {
+      var _self = this;
       var img_path = data && (data.backdrop_path || data.poster_path) ? (data.backdrop_path || data.poster_path) : '';
       var st = null;
       try { st = getSettings(); } catch (e) {}
-      var use_stack = st && st.cover_view === 'stack';
+      var use_stack = st && (st.cover_view === 'stack' || st.cover_view === 'folder');
       if (use_stack && this.stack_items && this.stack_items.length) {
         var cid = getCollectionId(data);
-        applyStackCoverToCard(this, cid, img_path);
-        if (this.img) this.img.src = './img/img_load.svg';
-        try {
-          if (cid && !cover_stack_cache[String(cid)] && cover_stack_prefetch_budget > 0) {
-            cover_stack_prefetch_budget--;
+        // Сначала ставим базовую обложку пока грузятся данные
+        applyStackCoverToCard(_self, cid, img_path);
+        if (_self.img_el) _self.img_el.src = './img/img_load.svg';
+        if (cid) {
+          if (cover_stack_cache[String(cid)]) {
+            applyStackCoverToCard(_self, cid, img_path);
+          } else {
+            applyStackCoverToCard(_self, cid, img_path);
             requestStackCovers(cid, function () {
-              applyStackCoverToCard(this, cid, img_path);
-            }.bind(this));
+              if (_self && _self.stack && _self.stack_items && _self.stack_items.length) {
+                applyStackCoverToCard(_self, cid, img_path);
+              }
+            });
           }
         }
-        catch (e) {}
       } else {
-        if (this.img) this.img.src = img_path ? Lampa.Api.img(img_path, 'w500') : './img/img_load.svg';
+        if (this.img_el) this.img_el.src = img_path ? Lampa.Api.img(img_path, 'w500') : './img/img_load.svg';
       }
       if (this.icon) this.icon.src = data && data.icon ? Lampa.Utils.protocol() + Lampa.Manifest.cub_domain + '/img/profiles/' + data.icon + '.png' : './img/img_broken.svg';
       if (this.onVisible) this.onVisible(this.item, data);
@@ -380,10 +526,10 @@
 
 
     this.destroy = function () {
-      if (this.img) {
-        this.img.onerror = function () {};
-        this.img.onload = function () {};
-        this.img.src = '';
+      if (this.img_el) {
+        this.img_el.onerror = function () {};
+        this.img_el.onload = function () {};
+        this.img_el.src = '';
       }
       remove(this.item);
       this.item = null;
@@ -448,7 +594,7 @@
         hidden_categories: Array.isArray(data.hidden_categories) ? data.hidden_categories : [],
         sort_user: data.sort_user === 'az' ? 'az' : 'default',
         group_user: data.group_user === 'alpha' ? 'alpha' : data.group_user === 'smart' ? 'smart' : 'none',
-        cover_view: data.cover_view === 'stack' ? 'stack' : 'single'
+        cover_view: data.cover_view === 'stack' ? 'stack' : data.cover_view === 'folder' ? 'folder' : 'single'
       };
     }
     catch (e) {
@@ -1257,11 +1403,28 @@
     catch (e) {}
   }
 
+  function hasCubAuth() {
+    var h = header();
+    return !!(h && h.headers && h.headers.token && h.headers.profile);
+  }
+
+
+
+  function hasBackendAuth() {
+    try {
+      return hasCubAuth();
+    }
+    catch (e) {
+      return false;
+    }
+  }
+
+
   function openCollectionsSettings() {
     var settings = getSettings();
     var sort_label = settings.sort_user === 'az' ? 'А-Я' : 'По умолчанию';
     var group_label = settings.group_user === 'smart' ? 'Умная' : settings.group_user === 'alpha' ? 'А-Я' : 'Выкл';
-    var cover_label = settings.cover_view === 'stack' ? 'Стек' : 'Одна';
+    var cover_label = settings.cover_view === 'stack' ? 'Стек' : settings.cover_view === 'folder' ? 'Папка' : 'Одна';
 
     Lampa.Select.show({
       title: 'Настройки коллекций',
@@ -1355,6 +1518,9 @@
           }, {
             title: 'Стек',
             value: 'stack'
+          }, {
+            title: 'Папка',
+            value: 'folder'
           }];
 
           Lampa.Select.show({
@@ -1396,6 +1562,7 @@
       }
     });
   }
+
 
   function openSectionsSettings() {
     var settings = getSettings();
@@ -1460,6 +1627,7 @@
       }
     };
   }
+
 
   function main(params, oncomplite, onerror) {
     var user = getAccount();
@@ -1729,11 +1897,15 @@
     if (!el) return;
     var ph = placeholder || '';
     var u = normalizeCoverPath(url);
+    // Принудительно задаём стили для Chromium 38
+    el.style.backgroundSize = 'cover';
+    el.style.backgroundPosition = 'center center';
+    el.style.backgroundRepeat = 'no-repeat';
     if (!u) {
-      el.style.backgroundImage = ph ? 'url("' + ph + '")' : '';
+      el.style.backgroundImage = ph ? 'url(' + ph + ')' : '';
       return;
     }
-    el.style.backgroundImage = 'url("' + u + '")';
+    el.style.backgroundImage = 'url(' + u + ')';
   }
 
   function uniqCoverPaths(arr) {
@@ -1829,6 +2001,7 @@
     var placeholder = './img/img_load.svg';
 
     var main_el = card.stack_main || stack.querySelector('.cub-collection-card__stack-main');
+
     setStackBackground(main_el, main ? Lampa.Api.img(main, 'w500') : '', placeholder);
 
     var strips = card.stack_strips && card.stack_strips.length ? card.stack_strips : Array.prototype.slice.call(stack.querySelectorAll('.cub-collection-card__stack-strip') || []);
@@ -1879,11 +2052,19 @@
         Lampa.Bell.push({
           text: 'Коллекция создана'
         });
-        if (onDone) onDone(res && res.collection ? res.collection : null);
+        var created = null;
+        try {
+          created = res && res.collection ? res.collection : res && res.data && res.data.collection ? res.data.collection : res && res.id ? res : null;
+        }
+        catch (e) {
+          created = null;
+        }
+        if (onDone) onDone(created);
       }, function (err) {
         Lampa.Loading.stop();
         Lampa.Noty.show('Не удалось создать коллекцию');
-        if (err && err.a && err.e) Lampa.Noty.show(network.errorDecode(err.a, err.e));
+        if (err && err.message) Lampa.Noty.show(err.message);
+        else if (err && err.a && err.e) Lampa.Noty.show(network.errorDecode(err.a, err.e));
       });
     });
   }
@@ -1919,7 +2100,8 @@
       }, function (err) {
         Lampa.Loading.stop();
         Lampa.Noty.show('Не удалось обновить коллекцию');
-        if (err && err.a && err.e) Lampa.Noty.show(network.errorDecode(err.a, err.e));
+        if (err && err.message) Lampa.Noty.show(err.message);
+        else if (err && err.a && err.e) Lampa.Noty.show(network.errorDecode(err.a, err.e));
       });
     });
   }
@@ -2055,7 +2237,8 @@
         }, function (err) {
           Lampa.Loading.stop();
           Lampa.Noty.show('Не удалось удалить коллекцию');
-          if (err && err.a && err.e) Lampa.Noty.show(network.errorDecode(err.a, err.e));
+          if (err && err.message) Lampa.Noty.show(err.message);
+          else if (err && err.a && err.e) Lampa.Noty.show(network.errorDecode(err.a, err.e));
         });
       },
       onBack: function onBack() {
@@ -2102,6 +2285,7 @@
           Api.coverCollection(payload, function () {
             Lampa.Loading.stop();
             data.backdrop_path = item.backdrop_path;
+            try { data.cover_tmdb_path = item.backdrop_path; } catch (e) {}
             if (card && card.img) {
               card.img.src = Lampa.Api.img(item.backdrop_path, 'w500');
             }
@@ -2111,7 +2295,8 @@
           }, function (err) {
             Lampa.Loading.stop();
             Lampa.Noty.show('Не удалось обновить обложку');
-            if (err && err.a && err.e) Lampa.Noty.show(network.errorDecode(err.a, err.e));
+            if (err && err.message) Lampa.Noty.show(err.message);
+            else if (err && err.a && err.e) Lampa.Noty.show(network.errorDecode(err.a, err.e));
           });
         },
         onBack: function onBack() {
@@ -2329,9 +2514,9 @@
 
   function getMembershipMap() {
     try {
-      var user = getAccount();
-      if (!user || !user.token) return {};
+      if (!hasBackendAuth()) return {};
 
+      var user = getAccount();
       var uid = String(getUserId(user) || '');
       if (!uid) return {};
 
@@ -2352,9 +2537,9 @@
 
   function setMembershipMap(map) {
     try {
-      var user = getAccount();
-      if (!user || !user.token) return;
+      if (!hasBackendAuth()) return;
 
+      var user = getAccount();
       var uid = String(getUserId(user) || '');
       if (!uid) return;
 
@@ -2460,8 +2645,9 @@
   var membership_discovery_seq = 0;
 
   function discoverMembershipForCard(card_data) {
+    if (!hasBackendAuth()) return;
     var user = getAccount();
-    if (!user || !user.token) return;
+    var uid = String(getUserId(user) || '');
 
     var key = getCardKey(card_data);
     if (!key) return;
@@ -2473,7 +2659,7 @@
     var target_id = String(getCardId(card_data) || '');
     if (!target_id) return;
 
-    Api.collection({ url: 'user_' + getUserId(user), page: 1 }, function (data) {
+    Api.collection({ url: 'user_' + uid, page: 1 }, function (data) {
       if (seq !== membership_discovery_seq) return;
 
       var cols = (data && data.results ? data.results : []).filter(function (col) {
@@ -2769,11 +2955,21 @@
     Lampa.Template.add('cub_collections_cover_item', '<div class="selectbox-item selector cub-collections-cover-item"><div class="cub-collections-cover-item__img" style="background-image:url({img})"></div><div class="selectbox-item__title">{title}</div></div>');
     Lampa.Template.add('cub_collection', '<div class="card cub-collection-card selector layer--visible layer--render card--collection"><div class="card__view"><img src="./img/img_load.svg" class="card__img"><div class="cub-collection-card__head"><div class="cub-collection-card__items"></div><div class="cub-collection-card__date"></div></div><div class="cub-collection-card__bottom"><div class="cub-collection-card__views"></div><div class="cub-collection-card__user"><div class="cub-collection-card__user-icon"><img src="./img/img_load.svg"></div><div class="cub-collection-card__user-name"></div></div><div class="cub-collection-card__liked"><div class="full-review__like-icon"><svg width="29" height="27" viewBox="0 0 29 27" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M8.0131 9.05733H3.75799C2.76183 9.05903 1.80696 9.45551 1.10257 10.1599C0.39818 10.8643 0.00170332 11.8192 0 12.8153V23.0778C0.00170332 24.074 0.39818 25.0289 1.10257 25.7333C1.80696 26.4377 2.76183 26.8341 3.75799 26.8358H23.394C24.2758 26.8354 25.1294 26.5252 25.8056 25.9594C26.4819 25.3936 26.9379 24.6082 27.094 23.7403L28.9408 13.4821C29.038 12.9408 29.0153 12.3849 28.8743 11.8534C28.7333 11.3218 28.4774 10.8277 28.1247 10.4058C27.7721 9.98391 27.3311 9.6445 26.833 9.41151C26.3349 9.17852 25.7918 9.05762 25.2419 9.05733H18.5043V3.63509C18.5044 2.90115 18.2824 2.18438 17.8673 1.57908C17.4522 0.973783 16.8636 0.508329 16.179 0.243966C15.4943 -0.0203976 14.7456 -0.0712821 14.0315 0.0980078C13.3173 0.267298 12.6712 0.648829 12.178 1.1924L12.1737 1.19669C10.5632 2.98979 9.70849 5.78681 8.79584 7.79142C8.6423 8.14964 8.45537 8.49259 8.23751 8.81574C8.16898 8.90222 8.09358 8.98301 8.01203 9.05733H8.0131ZM6.54963 23.6147H3.75799C3.68706 23.6147 3.61686 23.6005 3.55156 23.5728C3.48626 23.5452 3.42719 23.5046 3.37789 23.4536C3.32786 23.4047 3.28819 23.3463 3.26126 23.2817C3.23433 23.217 3.22045 23.1468 3.22045 23.0778V12.8153C3.22045 12.6768 3.24805 12.5396 3.30209 12.4124C3.35613 12.2852 3.43564 12.1705 3.53638 12.0746C3.63712 11.9787 3.75732 11.9035 3.89118 11.8536C4.02504 11.8038 4.17052 11.7807 4.31673 11.7859H6.54963V23.6147ZM24.9551 23.0778C24.9551 23.2163 24.9275 23.3535 24.8735 23.4807C24.8194 23.6079 24.7399 23.7226 24.6392 23.8185C24.5384 23.9144 24.4182 23.9896 24.2844 24.0394C24.1505 24.0893 24.005 24.1124 23.8588 24.1072H9.87479V12.8153H18.5043V18.0188C18.5043 18.1573 18.4767 18.2945 18.4227 18.4217C18.3686 18.5489 18.2891 18.6636 18.1884 18.7595C18.0876 18.8554 17.9674 18.9306 17.8336 18.9805C17.6997 19.0303 17.5542 19.0534 17.408 19.0482V22.7064C17.408 22.7773 17.3938 22.8475 17.3662 22.9128C17.3386 22.9781 17.298 23.0372 17.247 23.0865C17.196 23.1358 17.1376 23.1755 17.0729 23.2024C17.0082 23.2293 16.938 23.2432 16.8671 23.2432H10.7074C10.569 23.2432 10.4317 23.2156 10.3045 23.1616C10.1773 23.1075 10.0626 23.028 9.96673 22.9273C9.8708 22.8265 9.79561 22.7063 9.74577 22.5725C9.69593 22.4386 9.67284 22.2931 9.67802 22.1469V12.8153H8.0131C8.0131 12.6768 8.0407 12.5396 8.09474 12.4124C8.14878 12.2852 8.22829 12.1705 8.32903 12.0746C8.42977 11.9787 8.54997 11.9035 8.68383 11.8536C8.81769 11.8038 8.96317 11.7807 9.10938 11.7859H10.9419C11.6851 10.188 12.391 8.00569 13.5842 6.75063C13.8806 6.42349 14.2597 6.24027 14.65 6.21986C15.0403 6.19945 15.4314 6.34393 15.7481 6.62702C16.0648 6.91011 16.2882 7.3189 16.3789 7.77865V11.7859H25.2419C25.3804 11.7859 25.5177 11.8135 25.6449 11.8675C25.7721 11.9216 25.8868 12.0011 25.9827 12.1018C26.0786 12.2026 26.1538 12.3228 26.2036 12.4566C26.2535 12.5905 26.2766 12.736 26.2714 12.8822L24.4246 23.1404C24.3832 23.367 24.2625 23.5648 24.0889 23.7058C23.9153 23.8468 23.6995 23.9225 23.475 23.9187H24.9551V23.0778Z" fill="currentColor"></path></svg></div><div class="full-review__like-counter"></div></div></div></div><div class="card__title"></div></div>');
     var style = '<style>.cub-collection-card__head{display:-webkit-box;display:-webkit-flex;display:-moz-box;display:-ms-flexbox;display:flex;-webkit-box-align:center;-webkit-align-items:center;-moz-box-align:center;-ms-flex-align:center;align-items:center;-webkit-box-pack:justify;-webkit-justify-content:space-between;-moz-box-pack:justify;-ms-flex-pack:justify;justify-content:space-between;padding:.5em 1em;color:#fff;font-size:1em;font-weight:500;position:absolute;top:0;left:0;width:100%}.cub-collection-card__bottom{display:-webkit-box;display:-webkit-flex;display:-moz-box;display:-ms-flexbox;display:flex;-webkit-box-align:center;-webkit-align-items:center;-moz-box-align:center;-ms-flex-align:center;align-items:center;padding:.5em 1em;background-color:rgba(0,0,0,0.5);color:#fff;font-size:1em;font-weight:400;-webkit-border-radius:1em;-moz-border-radius:1em;border-radius:1em;position:absolute;bottom:0;left:0;width:100%}.cub-collection-card__liked{padding-left:1em;display:-webkit-box;display:-webkit-flex;display:-moz-box;display:-ms-flexbox;display:flex;-webkit-box-align:center;-webkit-align-items:center;-moz-box-align:center;-ms-flex-align:center;align-items:center}.cub-collection-card__liked .full-review__like-icon{margin-top:-0.2em}.cub-collection-card__liked .full-review__like-counter{font-weight:600}.cub-collection-card__items{background:rgba(0,0,0,0.5);padding:.3em;-webkit-border-radius:.2em;-moz-border-radius:.2em;border-radius:.2em}.cub-collection-card__user{display:-webkit-box;display:-webkit-flex;display:-moz-box;display:-ms-flexbox;display:flex;-webkit-box-align:center;-webkit-align-items:center;-moz-box-align:center;-ms-flex-align:center;align-items:center}.cub-collection-card__user-name{padding:0 1em;margin-left:auto}.cub-collection-card__user-icon{width:2em;height:2em;-webkit-border-radius:100%;-moz-border-radius:100%;border-radius:100%;background-color:#fff;border:.2em solid #fff}.cub-collection-card__user-icon img{width:100%;height:100%;-webkit-border-radius:100%;-moz-border-radius:100%;border-radius:100%;opacity:0}.cub-collection-card__user-icon.loaded img{opacity:1}.category-full .cub-collection-card{padding-bottom:2em}body.glass--style .cub-collection-card .cub-collection-card__head,body.glass--style .cub-collection-card .cub-collection-card__bottom{background-color: rgba(0,0,0,0.2);background-image:-webkit-gradient(linear,left top,left bottom,from(rgba(0,0,0,0.3)),to(rgba(0,0,0,0.1)));background-image:-webkit-linear-gradient(top,rgba(0,0,0,0.3),rgba(0,0,0,0.1));background-image:-moz-linear-gradient(top,rgba(0,0,0,0.3),rgba(0,0,0,0.1));background-image:-o-linear-gradient(top,rgba(0,0,0,0.3),rgba(0,0,0,0.1));background-image:-o-linear-gradient(top,rgba(0,0,0,0.3),rgba(0,0,0,0.1));background-image:linear-gradient(180deg,rgba(0,0,0,0.3),rgba(0,0,0,0.1))}.full--opened .cub-collection-card .card__view:after{display:none}.cub-collection-card img{-o-object-fit:cover;object-fit:cover}</style>';
-    style = style.replace('</style>', '.cub-collection-card--stack .card__img{opacity:0 !important}.cub-collection-card--stack .card__view{position:relative}.cub-collection-card__stack{position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:0;overflow:hidden;border-radius:1em;display:grid;grid-template-rows:1fr 3fr;gap:.18em;padding:.18em;background:rgba(0,0,0,0.35)}.cub-collection-card__stack-main{grid-row:2;border-radius:.85em;background-size:cover;background-position:center;background-color:#3E3E3E}.cub-collection-card__stack-tail{grid-row:1;display:grid;grid-template-rows:repeat(3,1fr);gap:.18em}.cub-collection-card__stack-tail-item{border-radius:0;background-size:cover;background-position:center;background-color:#3E3E3E}.cub-collection-card__stack-tail-item:first-child{border-radius:.85em .85em 0 0}.cub-collection-card__head,.cub-collection-card__bottom{z-index:2}.cub-collection-card--create.card--collection{flex:0 0 12.5% !important;width:12.5% !important;min-width:12.5% !important;max-width:12.5% !important}.cub-collection-card--create.card--collection .card__view{padding-bottom:120% !important}.cub-collection-card--create .card__view{position:relative}.cub-collection-card--create .card__img{opacity:1 !important;object-fit:contain !important}body.size--bigger .cub-collection-card--create.card--collection{flex-basis:16.666% !important;width:16.666% !important;min-width:16.666% !important;max-width:16.666% !important}.cub-collection-card--create .cub-collection-card__bottom{position:absolute}.cub-collection-card--create .cub-collection-card__bottom>:not(.cub-collection-create__bottom-text){visibility:hidden}.cub-collection-card--create .cub-collection-create__bottom-text{visibility:visible;position:absolute;left:0;right:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center}.cub-collection-create__center{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;pointer-events:none;color:#fff}.cub-collection-create__center:before{content:"";position:absolute;width:4.2em;height:4.2em;border-radius:50%;background:rgba(0,0,0,0.55);box-shadow:0 .35em .9em rgba(0,0,0,0.55),inset 0 0 0 .18em rgba(255,255,255,0.12)}.cub-collection-create__center svg{position:relative;z-index:1;width:2.6em;height:2.6em;filter:drop-shadow(0 0 .25em rgba(0,0,0,0.9))}.cub-collection-card--create .card__type{display:none !important}.button--collections--active{color:#fff}.button--collections .collections-ico__fill{opacity:0}.button--collections .collections-ico__stroke{opacity:1}.button--collections--active .collections-ico__fill{opacity:1}.button--collections--active .collections-ico__stroke{opacity:0}.button--collections .collections-ico__check{display:none}.button--collections--active .collections-ico__plus{display:none}.button--collections--active .collections-ico__check{display:block}.cub-collections-cover-item{display:flex;align-items:center}.cub-collections-cover-item__img{width:5.6em;height:3.2em;border-radius:0.4em;background-size:cover;background-position:center;flex:0 0 auto;margin-right:1em}.cub-collections__group-item{display:flex;align-items:flex-start;gap:.6em;white-space:normal}.cub-collections__group-check{display:inline-block;min-width:1.2em;flex:0 0 1.2em}.cub-collections__group-label{display:block;white-space:normal;overflow:visible;line-height:1.2}</style>');
-    style = style.replace('</style>', '.cub-collection-card__stack{display:block !important;padding:0 !important;background:transparent !important;--stack-radius:1em;--stack-strip-h:44%;--stack-step:8.5%}.cub-collection-card__stack-main{position:absolute !important;left:0 !important;right:0 !important;bottom:0 !important;top:calc(var(--stack-step) + var(--stack-step) + var(--stack-step)) !important;z-index:4 !important;border-radius:var(--stack-radius) !important;overflow:hidden !important;background-size:cover !important;background-position:center !important;background-repeat:no-repeat !important;background-color:#3E3E3E !important;box-shadow:0 .55em 1.25em rgba(0,0,0,0.55),0 .14em .4em rgba(0,0,0,0.32),inset 0 0 0 1px rgba(255,255,255,0.08)}.cub-collection-card__stack-main:after{content:\"\";position:absolute;left:0;right:0;top:0;bottom:0;border-radius:inherit;pointer-events:none;background:linear-gradient(to bottom,rgba(0,0,0,0.18),rgba(0,0,0,0) 28%,rgba(0,0,0,0.28))}.cub-collection-card__stack-strip{position:absolute !important;left:0 !important;right:0 !important;height:var(--stack-strip-h) !important;z-index:1 !important;border-radius:var(--stack-radius) var(--stack-radius) 0 0 !important;overflow:hidden !important;background-size:cover !important;background-position:center !important;background-repeat:no-repeat !important;background-color:#3E3E3E !important;box-shadow:0 .4em .95em rgba(0,0,0,0.5),0 .1em .25em rgba(0,0,0,0.28),inset 0 0 0 1px rgba(255,255,255,0.07)}.cub-collection-card__stack-strip:after{content:\"\";position:absolute;left:0;right:0;top:0;bottom:0;border-radius:inherit;pointer-events:none;background:linear-gradient(to bottom,rgba(255,255,255,0.10),rgba(0,0,0,0.10) 58%,rgba(0,0,0,0.40))}.cub-collection-card__stack-strip--1{top:0 !important;z-index:1 !important}.cub-collection-card__stack-strip--2{top:var(--stack-step) !important;z-index:2 !important}.cub-collection-card__stack-strip--3{top:calc(var(--stack-step) + var(--stack-step)) !important;z-index:3 !important}.cub-collection-card__head,.cub-collection-card__bottom{z-index:6 !important}</style>');
-    style = style.replace('</style>', '.cub-collection-card__head{display:block !important;position:absolute !important;top:0 !important;left:0 !important;width:100% !important;height:0 !important;padding:0 !important;pointer-events:none !important}.cub-collection-card__items{position:absolute !important;top:0 !important;left:0 !important;background-color:rgba(0,0,0,0.5) !important;padding:.35em .65em !important;border-radius:1em !important;font-weight:600 !important}.cub-collection-card__date{position:absolute !important;top:0 !important;right:0 !important;background-color:rgba(0,0,0,0.5) !important;padding:.35em .65em !important;border-radius:1em !important;font-weight:500 !important}</style>');
+    style = style.replace('</style>', '.cub-collection-card--stack .card__img{opacity:0 !important;display:none !important}.cub-collection-card--stack .card__view{position:relative !important}.cub-collection-card__stack{position:absolute !important;top:0 !important;left:0 !important;right:0 !important;bottom:0 !important;pointer-events:none;z-index:1;overflow:hidden;-webkit-border-radius:1em;-moz-border-radius:1em;border-radius:1em}.cub-collection-card__stack-main{position:absolute !important;left:0 !important;right:0 !important;bottom:0 !important;top:28% !important;z-index:4 !important;background-size:cover !important;background-position:center !important;background-color:#3E3E3E !important;-webkit-border-radius:1em !important;-moz-border-radius:1em !important;border-radius:1em !important;-webkit-box-shadow:0 -4px 10px rgba(0,0,0,0.6),0 4px 14px rgba(0,0,0,0.5) !important;-moz-box-shadow:0 -4px 10px rgba(0,0,0,0.6),0 4px 14px rgba(0,0,0,0.5) !important;box-shadow:0 -4px 10px rgba(0,0,0,0.6),0 4px 14px rgba(0,0,0,0.5) !important}.cub-collection-card__stack-strip{position:absolute !important;left:0 !important;right:0 !important;height:33% !important;z-index:1 !important;background-size:cover !important;background-position:center !important;background-color:#555 !important;-webkit-border-radius:1em 1em 0 0 !important;-moz-border-radius:1em 1em 0 0 !important;border-radius:1em 1em 0 0 !important;-webkit-box-shadow:0 4px 8px rgba(0,0,0,0.45) !important;-moz-box-shadow:0 4px 8px rgba(0,0,0,0.45) !important;box-shadow:0 4px 8px rgba(0,0,0,0.45) !important}.cub-collection-card__stack-strip--1{top:0 !important;z-index:1 !important}.cub-collection-card__stack-strip--2{top:9% !important;z-index:2 !important}.cub-collection-card__stack-strip--3{top:18% !important;z-index:3 !important}.cub-collection-card__head,.cub-collection-card__bottom{z-index:6 !important}.cub-collection-card--create.card--collection{-webkit-flex:0 0 12.5% !important;flex:0 0 12.5% !important;width:12.5% !important;min-width:12.5% !important;max-width:12.5% !important}.cub-collection-card--create.card--collection .card__view{padding-bottom:120% !important}.cub-collection-card--create .card__view{position:relative}.cub-collection-card--create .card__img{opacity:1 !important;display:block !important;object-fit:contain !important}body.size--bigger .cub-collection-card--create.card--collection{-webkit-flex-basis:16.666% !important;flex-basis:16.666% !important;width:16.666% !important;min-width:16.666% !important;max-width:16.666% !important}.button--collections--active{color:#fff}.button--collections .collections-ico__fill{opacity:0}.button--collections .collections-ico__stroke{opacity:1}.button--collections--active .collections-ico__fill{opacity:1}.button--collections--active .collections-ico__stroke{opacity:0}.button--collections .collections-ico__check{display:none}.button--collections--active .collections-ico__plus{display:none}.button--collections--active .collections-ico__check{display:block}.cub-collections-cover-item{display:-webkit-box;display:-webkit-flex;display:flex;-webkit-box-align:center;align-items:center}.cub-collections-cover-item__img{width:5.6em;height:3.2em;-webkit-border-radius:0.4em;border-radius:0.4em;background-size:cover;background-position:center;-webkit-flex:0 0 auto;flex:0 0 auto;margin-right:1em}</style>');
+    style = style.replace('</style>', '' +
+      // Контейнер head — градиент в углах карточки с border-radius
+      '.cub-collection-card__head{display:block !important;position:absolute !important;top:0 !important;left:0 !important;width:100% !important;pointer-events:none !important;padding:0 !important;z-index:7 !important;height:3.5em !important;' +
+        'background:-webkit-linear-gradient(top,rgba(0,0,0,0.55) 0%,rgba(0,0,0,0) 100%) !important;' +
+        'background:linear-gradient(to bottom,rgba(0,0,0,0.55) 0%,rgba(0,0,0,0) 100%) !important;' +
+        '-webkit-border-radius:1em 1em 0 0 !important;-moz-border-radius:1em 1em 0 0 !important;border-radius:1em 1em 0 0 !important}' +
+      // Количество — левый верхний угол, без бейджа, без изменения шрифта
+      '.cub-collection-card__items{position:absolute !important;top:.5em !important;left:.6em !important;background:none !important;padding:0 !important;border-radius:0 !important;color:#fff !important;text-shadow:0 1px 4px rgba(0,0,0,0.9),0 0 8px rgba(0,0,0,0.6) !important}' +
+      // Дата — правый верхний угол, без бейджа, без изменения шрифта
+      '.cub-collection-card__date{position:absolute !important;top:.5em !important;right:.6em !important;background:none !important;padding:0 !important;border-radius:0 !important;color:#fff !important;text-shadow:0 1px 4px rgba(0,0,0,0.9),0 0 8px rgba(0,0,0,0.6) !important}' +
+    '</style>');
     style = style.replace('</style>', '.cub-collection-card--create .card__img{opacity:0 !important}.cub-collection-card--create .card__view{background:transparent;border-radius:1em;position:relative}.cub-collection-create__bgicon{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:1;color:rgba(255,255,255,0.92)}.cub-collection-create__bgicon svg{display:block;width:86%;height:86%;max-width:240px;max-height:240px}.cub-collection-card--create .cub-collection-create__center{display:none !important}@media screen and (max-width:480px){.cub-collection-card--create.card--collection{flex:0 0 25% !important;width:25% !important;min-width:25% !important;max-width:25% !important}.cub-collection-card--create.card--collection .card__view{padding-bottom:120% !important}.cub-collection-create__bgicon svg{width:92%;height:92%;max-width:260px;max-height:260px}}</style>');
     style = style.replace('</style>', '.selectbox-item.cub-collections-select--active{background:#fff !important;color:#000 !important}.selectbox-item.cub-collections-select--active.focus{background:#fff !important;color:#000 !important}</style>');
+    style = style.replace('</style>', '.cub-collection-card--folder .cub-collection-card__stack{overflow:hidden !important;top:0 !important;height:100% !important}.cub-collection-card--folder .cub-collection-card__stack-main{top:0 !important;left:0 !important;right:0 !important;bottom:0 !important;height:100% !important;z-index:4 !important;-webkit-border-radius:0 !important;border-radius:0 !important;-webkit-box-shadow:none !important;box-shadow:none !important}.cub-collection-card--folder .cub-collection-card__stack-strip{height:28% !important;left:40% !important;right:0 !important;-webkit-border-radius:0 1em 0 0 !important;border-radius:0 1em 0 0 !important;-webkit-box-shadow:0 3px 8px rgba(0,0,0,0.6) !important;box-shadow:0 3px 8px rgba(0,0,0,0.6) !important}.cub-collection-card--folder .cub-collection-card__stack-strip--1{top:0 !important;z-index:1 !important}.cub-collection-card--folder .cub-collection-card__stack-strip--2{top:5% !important;z-index:2 !important}.cub-collection-card--folder .cub-collection-card__stack-strip--3{top:10% !important;z-index:3 !important}.cub-collection-card--folder .cub-folder-relief{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}</style>');
     Lampa.Template.add('cub_collections_css', style);
     $('body').append(Lampa.Template.get('cub_collections_css', {}, true));
 
@@ -2801,78 +2997,84 @@
       if (window.cub_collections_head_settings_inited) return;
       window.cub_collections_head_settings_inited = true;
 
-      var isAlive = function (btn) {
-        try {
-          var node = btn && btn[0] ? btn[0] : null;
-          if (!node) return false;
-          if (!node.parentNode) return false;
-          if (!document || !document.body) return true;
-          return document.body.contains(node);
-        }
-        catch (e) {
-          return false;
-        }
-      };
+      var ICON_SVG = '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M19.14,12.94c.04-.31,.06-.63,.06-.94s-.02-.63-.06-.94l2.03-1.58c.18-.14,.23-.41,.12-.61l-1.92-3.32c-.11-.2-.36-.28-.57-.2l-2.39,.96c-.5-.38-1.04-.7-1.64-.94l-.36-2.54c-.03-.22-.22-.38-.44-.38h-3.84c-.22,0-.41,.16-.44,.38l-.36,2.54c-.6,.24-1.14,.56-1.64,.94l-2.39-.96c-.21-.08-.46,0-.57,.2l-1.92,3.32c-.11,.2-.06,.47,.12,.61l2.03,1.58c-.04,.31-.06,.63-.06,.94s.02,.63,.06,.94l-2.03,1.58c-.18,.14,.23,.41,.12,.61l1.92,3.32c.11,.2,.36,.28,.57,.2l2.39-.96c.5,.38,1.04,.7,1.64,.94l.36,2.54c.03,.22,.22,.38,.44,.38h3.84c.22,0,.41-.16,.44,.38l.36-2.54c.6-.24,1.14-.56,1.64-.94l2.39,.96c.21,.08,.46,0,.57-.2l1.92-3.32c.11-.2,.06-.47-.12-.61l-2.03-1.58Zm-7.14,2.56c-1.93,0-3.5-1.57-3.5-3.5s1.57-3.5,3.5-3.5,3.5,1.57,3.5,3.5-1.57,3.5-3.5,3.5Z"/></svg>';
 
-      var updateVisibility = function (btn) {
+      var COLL_COMPONENTS = { cub_collections_main: 1, cub_collections_collection: 1, cub_collections_view: 1 };
+
+      function isCollectionsActive() {
         try {
           var act = Lampa.Activity && Lampa.Activity.active ? Lampa.Activity.active() : null;
-          var comp = act && act.component ? act.component : '';
-          if (comp === 'cub_collections_main' || comp === 'cub_collections_collection' || comp === 'cub_collections_view') btn.show();
-          else btn.hide();
-        }
-        catch (e) {}
-      };
+          if (!act || !act.component) return false;
+          var comp = act.component;
+          // Lampa может добавлять префикс plugin_XXXXXXXXX_ к компонентам
+          return !!(COLL_COMPONENTS[comp] ||
+            comp.indexOf('cub_collections_main') >= 0 ||
+            comp.indexOf('cub_collections_collection') >= 0 ||
+            comp.indexOf('cub_collections_view') >= 0);
+        } catch (e) { return false; }
+      }
 
-      var tryAdd = function () {
-        var existing = window.cub_collections_head_settings_button;
-        if (existing) {
-          if (!isAlive(existing)) {
-            try { existing.remove(); } catch (e) {}
-            window.cub_collections_head_settings_button = null;
-          } else {
-            updateVisibility(existing);
-            return true;
-          }
-        }
-
-        if (!Lampa.Head || !Lampa.Head.addIcon) return false;
-        if (Lampa.Head.render && !Lampa.Head.render(true)) return false;
-
+      function removeOldButton() {
+        // Убираем все старые кнопки из DOM
         try {
-          var icon = '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M19.14,12.94c.04-.31,.06-.63,.06-.94s-.02-.63-.06-.94l2.03-1.58c.18-.14,.23-.41,.12-.61l-1.92-3.32c-.11-.2-.36-.28-.57-.2l-2.39,.96c-.5-.38-1.04-.7-1.64-.94l-.36-2.54c-.03-.22-.22-.38-.44-.38h-3.84c-.22,0-.41,.16-.44,.38l-.36,2.54c-.6,.24-1.14,.56-1.64,.94l-2.39-.96c-.21-.08-.46,0-.57,.2l-1.92,3.32c-.11,.2-.06,.47,.12,.61l2.03,1.58c-.04,.31-.06,.63-.06,.94s.02,.63,.06,.94l-2.03,1.58c-.18,.14,.23,.41,.12,.61l1.92,3.32c.11,.2,.36,.28,.57,.2l2.39-.96c.5,.38,1.04,.7,1.64,.94l.36,2.54c.03,.22,.22,.38,.44,.38h3.84c.22,0,.41-.16,.44-.38l.36-2.54c.6-.24,1.14-.56,1.64-.94l2.39,.96c.21,.08,.46,0,.57-.2l1.92-3.32c.11-.2,.06-.47-.12-.61l-2.03-1.58Zm-7.14,2.56c-1.93,0-3.5-1.57-3.5-3.5s1.57-3.5,3.5-3.5,3.5,1.57,3.5,3.5-1.57,3.5-3.5,3.5Z"/></svg>';
-          var btn = Lampa.Head.addIcon(icon, function () {
-            openCollectionsSettings();
-          });
-          btn.addClass('open--collections-settings');
-          window.cub_collections_head_settings_button = btn;
+          var old = document.querySelectorAll('.open--collections-settings');
+          for (var i = 0; i < old.length; i++) {
+            if (old[i].parentNode) old[i].parentNode.removeChild(old[i]);
+          }
+        } catch (e) {}
+        window.cub_collections_head_settings_button = null;
+      }
 
-          updateVisibility(btn);
+      function createButton() {
+        removeOldButton();
 
-          return true;
+        // Способ 1: через Lampa.Head.addIcon
+        if (Lampa.Head && Lampa.Head.addIcon) {
+          try {
+            var btn = Lampa.Head.addIcon(ICON_SVG, function () {
+              openCollectionsSettings();
+            });
+            btn.addClass('open--collections-settings');
+            window.cub_collections_head_settings_button = btn;
+            return true;
+          } catch (e) {}
         }
-        catch (e) {
-          return false;
+
+        return false;
+      }
+
+      function onActivityStart() {
+        if (!isCollectionsActive()) {
+          // Скрываем кнопку когда не в коллекциях
+          if (window.cub_collections_head_settings_button) {
+            try { window.cub_collections_head_settings_button.hide(); } catch (e) {}
+          }
+          return;
         }
+
+        // Открылась страница коллекций — пересоздаём кнопку
+        createButton();
+
+        if (window.cub_collections_head_settings_button) {
+          try { window.cub_collections_head_settings_button.show(); } catch (e) {}
+        }
+      }
+
+      // Первая попытка создать кнопку
+      var init_attempts = 0;
+      var init_loop = function () {
+        if (createButton()) return;
+        init_attempts++;
+        if (init_attempts < 30) setTimeout(init_loop, 300);
       };
+      init_loop();
 
-      var attempts = 0;
-      var loop = function () {
-        if (window.cub_collections_head_settings_button) return;
-        if (tryAdd()) return;
-        attempts++;
-        if (attempts < 50) setTimeout(loop, 200);
-      };
-
-      loop();
-
+      // При каждом переключении активности
       try {
         Lampa.Listener.follow('activity', function (e) {
-          if (e.type !== 'start') return;
-          tryAdd();
+          if (e.type === 'start') onActivityStart();
         });
-      }
-      catch (e) {}
+      } catch (e) {}
     }
 
     if (window.appready) initHeadSettingsButton();
@@ -3169,7 +3371,11 @@
       bindFullCollectionsButton(btn, card_data);
 
       var options = buttons.find('.button--options');
-      if (options.length) options.before(btn);
+      if (options.length) {
+        var opt_el = options[0];
+        if (opt_el && opt_el.parentNode) opt_el.parentNode.insertBefore(btn[0] || btn, opt_el);
+        else buttons.append(btn);
+      }
       else buttons.append(btn);
     });
   }
