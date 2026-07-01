@@ -2526,6 +2526,17 @@
       }
 
       var storage_key = 'cub_collections_membership_' + uid;
+
+      // Одноразовый сброс кэша: до фикса совпадение фильма/сериала с элементом
+      // коллекции проверялось только по числовому TMDB ID без учёта типа,
+      // из-за чего могли сохраниться ложные пометки "уже в коллекции".
+      var migration_key = 'cub_collections_membership_v2_' + uid;
+      if (!Lampa.Storage.get(migration_key, false)) {
+        try { Lampa.Storage.set(storage_key, {}); } catch (e) {}
+        try { Lampa.Storage.set(migration_key, true); } catch (e) {}
+        return {};
+      }
+
       var raw = Lampa.Storage.get(storage_key, '{}') || '{}';
       if (typeof raw === 'string') return JSON.parse(raw || '{}') || {};
       return raw || {};
@@ -2658,6 +2669,7 @@
     var seq = ++membership_discovery_seq;
     var target_id = String(getCardId(card_data) || '');
     if (!target_id) return;
+    var target_method = getCardMethod(card_data);
 
     Api.collection({ url: 'user_' + uid, page: 1 }, function (data) {
       if (seq !== membership_discovery_seq) return;
@@ -2678,7 +2690,7 @@
 
           var results = view && view.results ? view.results : [];
           var found = results.some(function (x) {
-            return String(getCardId(x) || '') === target_id;
+            return String(getCardId(x) || '') === target_id && getCardMethod(x) === target_method;
           });
 
           if (found) setCardInCollectionCache(card_data, collection_id, true);
