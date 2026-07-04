@@ -31,6 +31,7 @@
         quickConnectInFlight: false,
         quickConnectFailCount: 0,
         apiPatched: false,
+        searchRegistered: false,
         linePrefsKey: 'jellyfin_line_prefs',
         playbackStateKey: 'jellyfin_playback_state_v1',
         ticksPerSecond: 10000000,
@@ -1014,7 +1015,6 @@
         // и сериалов внутри библиотеки или внутри конкретной франшизы/
         // коллекции (тогда parentId — id самого BoxSet'а).
         browseItems: function (kind, parentId, page, callback, onFail) {
-            var startTime = Date.now();
             this.authenticate(function () {
                 try {
                     var server = String(sget('jellyfin_server', JELLYFIN_SERVER) || '').replace(/\/$/, '');
@@ -1062,8 +1062,6 @@
                         var total = 0;
                         try { total = parseInt(res.TotalRecordCount || res.totalRecordCount || 0, 10) || 0; } catch (e0) { total = 0; }
 
-                        try { console.log('[Jellyfin DEBUG] browseItems получил items.length=' + items.length + ' total=' + total); } catch (e0) {}
-
                         // Для boxset-вида: если пришли BoxSet'ы/Playlist'ы — показываем их как папки,
                         // если пришли Movie/Series — показываем как обычные карточки.
                         var cards = [];
@@ -1071,11 +1069,6 @@
                             var item = items[i];
                             if (!item) continue;
                             var itemType = String(item.Type || item.type || '').toLowerCase();
-                            
-                            // DEBUG: логируем первые 3 элемента для диагностики
-                            if (i < 3) {
-                                try { console.log('[Jellyfin DEBUG] browseItems kind=' + kind + ' itemType=' + itemType + ' Name=' + (item.Name || '') + ' ChildCount=' + (item.ChildCount || 0)); } catch (e0) {}
-                            }
                             
                             var c;
                             // BoxSet и Playlist (франшизы) — это папки с коллекциями
@@ -1087,10 +1080,8 @@
                             if (c) cards.push(c);
                         }
                         if (kind !== 'boxset') cards = this.dedupeCards(cards);
-                        try { console.log('[Jellyfin] browseItems(kind=' + kind + ',parentId=' + (parentId || 'null') + ') завершен за ' + (Date.now() - startTime) + 'мс, items=' + items.length + ' cards=' + cards.length); } catch (eLog) {}
                         callback({ cards: cards, total: total });
                     }.bind(this), function (err) {
-                        try { console.warn('[Jellyfin] browseItems(kind=' + kind + ',parentId=' + (parentId || 'null') + ') ОШИБКА за ' + (Date.now() - startTime) + 'мс', err); } catch (eLog) {}
                         if (onFail) onFail(err);
                     }, { useAuthHeader: false, useTokenHeader: false, dataType: 'json', timeoutMs: 1000 * timeout });
                 } catch (e1) {
@@ -1121,7 +1112,6 @@
         },
 
         libraryItems: function (mode, media, page, callback, onFail, onlyTmdb, opts) {
-            var startTime = Date.now();
             this.authenticate(function () {
                 try {
                     var server = String(sget('jellyfin_server', JELLYFIN_SERVER) || '').replace(/\/$/, '');
@@ -1187,10 +1177,8 @@
                         }
 
                         cards = this.dedupeCards(cards).slice(0, 20);
-                        try { console.log('[Jellyfin] libraryItems(' + mode + ',' + media + ') завершен за ' + (Date.now() - startTime) + 'мс, items=' + items.length); } catch (eLog) {}
                         callback({ cards: cards, total: total });
                     }.bind(this), function (err) {
-                        try { console.warn('[Jellyfin] libraryItems(' + mode + ',' + media + ') ОШИБКА за ' + (Date.now() - startTime) + 'мс', err); } catch (eLog) {}
                         if (onFail) onFail(err);
                     }, { useAuthHeader: false, useTokenHeader: false, dataType: 'json', timeoutMs: 1000 * 15 });
                 } catch (e1) {
@@ -1246,9 +1234,6 @@
 
             this.getViews(function (views) {
                 var list = Array.isArray(views) ? views : [];
-                try {
-                    console.log('[Jellyfin] UserViews получено: ' + list.length, list.map(function (v) { return (v && (v.Name || v.name)) + ' [' + (v && (v.CollectionType || v.collectionType) || '—') + ']'; }));
-                } catch (eLogV) {}
                 var defs = [resumeDef];
                 var seen = {};
 
@@ -1304,16 +1289,12 @@
 
         buildMainLines: function (oncomplite, onerror) {
             var self = this;
-            var startTime = Date.now();
-            try { console.log('[Jellyfin PERF] buildMainLines START'); } catch (e0) {}
 
             // Один вызов getViews — строим из него и строку "Мои медиатеки",
             // и список лент. Раньше было два параллельных вызова getViews
             // (из buildMainLines и внутри getLineDefs), из-за чего один из
             // них мог вернуть пустой результат при гонке authenticate.
-            self.getViews(function (allViews) {
-                try { console.log('[Jellyfin PERF] getViews завершился за ' + (Date.now() - startTime) + 'ms'); } catch (e0) {}
-                var viewList = Array.isArray(allViews) ? allViews : [];
+            self.getViews(function (allViews) {                var viewList = Array.isArray(allViews) ? allViews : [];
                 var NON_VIDEO_TYPES = { music: true, musicvideos: true, books: true, photos: true };
 
                 // --- Строка "Мои медиатеки" ---
@@ -1407,8 +1388,6 @@
                 var firstErr = null;
 
                 var finalize = function () {
-                    try { console.log('[Jellyfin PERF] buildMainLines ЗАВЕРШЕН за ' + (Date.now() - startTime) + 'ms, done=' + done + ' total=' + total); } catch (e0) {}
-                    try { console.log('[Jellyfin] Ленты: total=' + total + ' ok=' + okCount + ' empty=' + emptyCount + ' fail=' + failCount); } catch (e0) {}
                     if (okCount === 0 && total > 1 && (failCount + emptyCount) > 0) {
                         try {
                             var st = firstErr ? (' [' + (firstErr.status || firstErr.decode_code || firstErr.code || '') + ']') : '';
@@ -1432,11 +1411,8 @@
 
                 var runOne = function (i) {
                     var def = defs[i];
-                    var lineStartTime = Date.now();
                     var opts = def.parentId ? { parentId: def.parentId } : {};
-                    try { console.log('[Jellyfin PERF] Загружаю ленту "' + def.title + '"...'); } catch (e0) {}
                     self.libraryItems(def.mode, def.media, 1, function (data) {
-                        try { console.log('[Jellyfin PERF] Лента "' + def.title + '" загружена за ' + (Date.now() - lineStartTime) + 'ms, cards=' + ((data && data.cards) ? data.cards.length : 0)); } catch (e0) {}
                         if (data && data.cards && data.cards.length) okCount++; else emptyCount++;
                         pushLine({
                             title: 'Jellyfin \u2022 ' + def.title,
@@ -1446,7 +1422,6 @@
                         });
                         oneDone();
                     }, function (err) {
-                        try { console.log('[Jellyfin PERF] Лента "' + def.title + '" упала за ' + (Date.now() - lineStartTime) + 'ms'); } catch (e0) {}
                         failCount++;
                         if (!firstErr) firstErr = err;
                         try { console.warn('[Jellyfin] лента "' + def.title + '" упала', err); } catch (e0) {}
@@ -1508,6 +1483,61 @@
             } catch (e0) {
                 if (onFail) onFail();
             }
+        },
+
+        registerSearch: function () {
+            if (this.searchRegistered) return;
+            if (!Lampa || !Lampa.Search || !Lampa.Search.addSource) return;
+            this.searchRegistered = true;
+
+            var searchJellyfin = function (params, oncomplite) {
+                var query = '';
+                try {
+                    query = params && params.query ? decodeURIComponent(params.query) : '';
+                } catch (e) {
+                    query = params && params.query ? params.query : '';
+                }
+
+                query = (query || '').toString().trim();
+                if (!query) return oncomplite([]);
+
+                Jellyfin.authenticate(function () {
+                    var server = sget('jellyfin_server', JELLYFIN_SERVER).replace(/\/$/, '');
+                    var url = server + '/Users/' + Jellyfin.userId + '/Items';
+                    var params = {
+                        SearchTerm: query,
+                        IncludeItemTypes: 'Movie,Series,BoxSet',
+                        Recursive: true,
+                        Limit: 50,
+                        Fields: 'PrimaryImageAspectRatio,MediaStreams,MediaSources,Overview',
+                        EnableTotalRecordCount: false
+                    };
+
+                    Jellyfin.request(url, 'GET', params, function (data) {
+                        var items = (data && Array.isArray(data.Items)) ? data.Items : [];
+                        var cards = [];
+
+                        for (var i = 0; i < items.length; i++) {
+                            var item = items[i];
+                            var card = Jellyfin.itemToCard(item);
+                            if (card) cards.push(card);
+                        }
+
+                        oncomplite([{
+                            title: 'Jellyfin',
+                            results: cards
+                        }]);
+                    }, function () {
+                        oncomplite([]);
+                    });
+                });
+            };
+
+            Lampa.Search.addSource({
+                title: 'Jellyfin',
+                search: searchJellyfin,
+                params: { save: true }
+            });
         },
 
         patchApi: function () {
@@ -2633,7 +2663,7 @@
     }
 
     if (!document.getElementById('jellyfin-button-styles')) {
-        $('body').append('<style id="jellyfin-button-styles">.button--jellyfin{overflow:hidden !important;}.button--jellyfin svg{width:30px !important;height:30px !important;flex:0 0 30px !important;display:block !important;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6)) !important;}.button--jellyfin .button--jellyfin__text{display:block !important;opacity:0 !important;max-width:0 !important;overflow:hidden !important;white-space:nowrap !important;margin-left:0 !important;transition:opacity .15s ease,max-width .2s ease,margin-left .2s ease !important;}.button--jellyfin.focus .button--jellyfin__text,.button--jellyfin:hover .button--jellyfin__text{opacity:1 !important;max-width:160px !important;margin-left:.6em !important;}@media screen and (max-width:480px){.button--jellyfin svg{width:24px !important;height:24px !important;flex:0 0 24px !important;}}.jellyfin-qc{padding:1.2em !important;}.jellyfin-qc__title{font-size:1.2em !important;font-weight:700 !important;margin-bottom:.8em !important;}.jellyfin-qc__text{opacity:.85 !important;line-height:1.35 !important;margin-bottom:1em !important;}.jellyfin-qc__code{font-size:2.4em !important;font-weight:900 !important;letter-spacing:.18em !important;padding:.45em .4em !important;border-radius:.6em !important;background:rgba(255,255,255,.08) !important;border:1px solid rgba(255,255,255,.18) !important;text-align:center !important;}.jellyfin-qc__url{margin-top:1em !important;opacity:.7 !important;word-break:break-all !important;font-size:.9em !important;}.jellyfin-qc__status{margin-top:1em !important;font-weight:600 !important;opacity:.9 !important;}.jellyfin-continue-popup{position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.72);}.jellyfin-continue__card{background:#1a1a1a;border-radius:1em;width:44em;max-width:94vw;overflow:hidden;box-shadow:0 1em 4em rgba(0,0,0,0.8);border:1px solid rgba(255,255,255,0.06);}.jellyfin-continue__img{position:relative;width:100%;padding-top:56.25%;background:#000;overflow:hidden;}.jellyfin-continue__img img{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;opacity:0.75;}.jellyfin-continue__details{position:absolute;bottom:0;left:0;right:0;padding:1.3em;background:linear-gradient(transparent,rgba(0,0,0,0.95));}.jellyfin-continue__title{font-size:1.7em;font-weight:700;margin-bottom:0.25em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#fff;}.jellyfin-continue__info{font-size:1.05em;opacity:0.65;color:#fff;}.jellyfin-continue__body{padding:0 1.3em 0.4em;margin-top:-0.4em;}.jellyfin-continue__question{font-size:1.15em;font-weight:600;margin:1em 0 0.8em;}.jellyfin-continue__footer{display:flex;flex-direction:row;gap:1em;padding:1.2em;}.jellyfin-continue__btn{position:relative;padding:1em 1.2em;border-radius:0.6em;cursor:pointer;font-size:1.15em;font-weight:600;background:rgba(255,255,255,0.08);color:#fff;transition:all 0.2s ease;text-align:center;flex:1;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.06);}.jellyfin-continue__btn.focus{background:#fff;color:#000;transform:translateY(-0.2em);box-shadow:0 0.5em 1.5em rgba(255,255,255,0.2);}.jellyfin-continue__bar{height:0.42em;background:rgba(255,255,255,0.12);border-radius:0.3em;overflow:hidden;}.jellyfin-continue__barfill{height:100%;background:#9B59B6;width:0%;}.jellyfin-badge{display:inline-block;margin-left:0.55em;padding:0.18em 0.55em;border-radius:0.55em;font-size:0.78em;line-height:1.2;font-weight:700;vertical-align:middle;white-space:nowrap;background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.12);color:#fff;}.jellyfin-badge--last{background:rgba(155,89,182,0.25);border-color:rgba(155,89,182,0.45);}</style>');
+        $('body').append('<style id="jellyfin-button-styles">.button--jellyfin{overflow:hidden !important;}.button--jellyfin svg{width:30px !important;height:30px !important;flex:0 0 30px !important;display:block !important;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6)) !important;}.button--jellyfin .button--jellyfin__text{display:block !important;opacity:0 !important;max-width:0 !important;overflow:hidden !important;white-space:nowrap !important;margin-left:0 !important;transition:opacity .15s ease,max-width .2s ease,margin-left .2s ease !important;}.button--jellyfin.focus .button--jellyfin__text,.button--jellyfin:hover .button--jellyfin__text{opacity:1 !important;max-width:160px !important;margin-left:.6em !important;}@media screen and (max-width:480px){.button--jellyfin svg{width:24px !important;height:24px !important;flex:0 0 24px !important;}}@media screen and (max-height:480px){.button--jellyfin svg{width:24px !important;height:24px !important;flex:0 0 24px !important;}}.jellyfin-qc{padding:1.2em !important;}.jellyfin-qc__title{font-size:1.2em !important;font-weight:700 !important;margin-bottom:.8em !important;}.jellyfin-qc__text{opacity:.85 !important;line-height:1.35 !important;margin-bottom:1em !important;}.jellyfin-qc__code{font-size:2.4em !important;font-weight:900 !important;letter-spacing:.18em !important;padding:.45em .4em !important;border-radius:.6em !important;background:rgba(255,255,255,.08) !important;border:1px solid rgba(255,255,255,.18) !important;text-align:center !important;}.jellyfin-qc__url{margin-top:1em !important;opacity:.7 !important;word-break:break-all !important;font-size:.9em !important;}.jellyfin-qc__status{margin-top:1em !important;font-weight:600 !important;opacity:.9 !important;}.jellyfin-continue-popup{position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.72);}.jellyfin-continue__card{background:#1a1a1a;border-radius:1em;width:44em;max-width:94vw;overflow:hidden;box-shadow:0 1em 4em rgba(0,0,0,0.8);border:1px solid rgba(255,255,255,0.06);}.jellyfin-continue__img{position:relative;width:100%;padding-top:56.25%;background:#000;overflow:hidden;}.jellyfin-continue__img img{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;opacity:0.75;}.jellyfin-continue__details{position:absolute;bottom:0;left:0;right:0;padding:1.3em;background:linear-gradient(transparent,rgba(0,0,0,0.95));}.jellyfin-continue__title{font-size:1.7em;font-weight:700;margin-bottom:0.25em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#fff;}.jellyfin-continue__info{font-size:1.05em;opacity:0.65;color:#fff;}.jellyfin-continue__body{padding:0 1.3em 0.4em;margin-top:-0.4em;}.jellyfin-continue__question{font-size:1.15em;font-weight:600;margin:1em 0 0.8em;}.jellyfin-continue__footer{display:flex;flex-direction:row;gap:1em;padding:1.2em;}.jellyfin-continue__btn{position:relative;padding:1em 1.2em;border-radius:0.6em;cursor:pointer;font-size:1.15em;font-weight:600;background:rgba(255,255,255,0.08);color:#fff;transition:all 0.2s ease;text-align:center;flex:1;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.06);}.jellyfin-continue__btn.focus{background:#fff;color:#000;transform:translateY(-0.2em);box-shadow:0 0.5em 1.5em rgba(255,255,255,0.2);}.jellyfin-continue__bar{height:0.42em;background:rgba(255,255,255,0.12);border-radius:0.3em;overflow:hidden;}.jellyfin-continue__barfill{height:100%;background:#9B59B6;width:0%;}.jellyfin-badge{display:inline-block;margin-left:0.55em;padding:0.18em 0.55em;border-radius:0.55em;font-size:0.78em;line-height:1.2;font-weight:700;vertical-align:middle;white-space:nowrap;background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.12);color:#fff;}.jellyfin-badge--last{background:rgba(155,89,182,0.25);border-color:rgba(155,89,182,0.45);}</style>');
     }
 
     // ------------------------------------------------------------------
@@ -3049,6 +3079,7 @@
         registerJellyfinComponents();
 
         Jellyfin.patchApi();
+        Jellyfin.registerSearch();
 
         Lampa.Listener.follow('menu', function (e) {
             try {
