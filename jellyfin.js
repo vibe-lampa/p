@@ -982,9 +982,16 @@
                 if (!childCount) {
                     try { childCount = parseInt(it.RecursiveItemCount, 10) || 0; } catch (e1) { childCount = 0; }
                 }
+                if (!childCount) {
+                    try { childCount = parseInt(it.ItemCount, 10) || 0; } catch (e2) { childCount = 0; }
+                }
                 return {
+                    id: String(it.Id),
+                    jellyfin_id: String(it.Id),
                     jellyfin_boxset_id: String(it.Id),
+                    source: 'jellyfin',
                     title: it.Name || '',
+                    name: it.Name || '',
                     img: this.buildImageUrl(it.Id, 'primary') || '',
                     child_count: childCount
                 };
@@ -1503,41 +1510,258 @@
 
                 Jellyfin.authenticate(function () {
                     var server = sget('jellyfin_server', JELLYFIN_SERVER).replace(/\/$/, '');
-                    var url = server + '/Users/' + Jellyfin.userId + '/Items';
-                    var params = {
-                        SearchTerm: query,
-                        IncludeItemTypes: 'Movie,Series,BoxSet,Playlist,Folder,CollectionFolder',
-                        Recursive: true,
-                        Limit: 50,
-                        Fields: 'PrimaryImageAspectRatio,MediaStreams,MediaSources,Overview',
-                        EnableTotalRecordCount: false
-                    };
+                    
+                    // Формируем URL с параметрами для GET запроса
+                    var params = [
+                        'searchTerm=' + encodeURIComponent(query),
+                        'includeItemTypes=Movie,Series,BoxSet,Playlist',
+                        'limit=50',
+                        'includePeople=false',
+                        'includeMedia=true',
+                        'includeGenres=false',
+                        'includeStudios=false',
+                        'includeArtists=false',
+                        'userId=' + encodeURIComponent(Jellyfin.userId)
+                    ];
+                    
+                    var url = server + '/Search/Hints?' + params.join('&');
 
-                    Jellyfin.request(url, 'GET', params, function (data) {
-                        var items = (data && Array.isArray(data.Items)) ? data.Items : [];
-                        var cards = [];
+                    Jellyfin.request(url, 'GET', null, function (data) {
+                        console.log('[Jellyfin Search] Query:', query);
+                        console.log('[Jellyfin Search] Response:', data);
+                        
+                        var items = (data && Array.isArray(data.SearchHints)) ? data.SearchHints : [];
+                        console.log('[Jellyfin Search] Items count:', items.length);
+                        
+                        // Группируем по типам
+                        var movies = [];
+                        var series = [];
+                        var boxsets = [];
+                        var playlists = [];
 
                         for (var i = 0; i < items.length; i++) {
                             var item = items[i];
                             var itemType = String(item.Type || '').toLowerCase();
+                            console.log('[Jellyfin Search] Item', i, '- Type:', item.Type, '| Name:', item.Name);
+                            
+                            // Конвертируем SearchHint в формат Item
+                            var fullItem = {
+                                Id: item.Id,
+                                Name: item.Name,
+                                Type: item.Type,
+                                ProductionYear: item.ProductionYear,
+                                IndexNumber: item.IndexNumber,
+                                ParentIndexNumber: item.ParentIndexNumber,
+                                ItemCount: item.ItemCount || 0,
+                                ImageTags: item.ImageTags || {},
+                                BackdropImageTags: item.BackdropImageTags || [],
+                                UserData: item.UserData || {},
+                                SeriesId: item.SeriesId,
+                                SeriesName: item.Series,
+                                RunTimeTicks: item.RunTimeTicks
+                            };
+                            
                             var card = null;
                             
-                            // BoxSet, Playlist, Folder - это контейнеры, используем boxsetToCard
-                            if (itemType === 'boxset' || itemType === 'playlist' || itemType === 'folder' || itemType === 'collectionfolder') {
-                                card = Jellyfin.boxsetToCard(item);
-                            } else {
-                                // Movie, Series - обычный контент
-                                card = Jellyfin.jellyfinToCard(item);
+                            if (itemType === 'movie') {
+                                card = Jellyfin.jellyfinToCard(fullItem);
+                                if (card) movies.push(card);
+                            } else if (itemType === 'series') {
+                                card = Jellyfin.jellyfinToCard(fullItem);
+                                if (card) series.push(card);
+                            } else if (itemType === 'boxset') {
+                                fullItem.ChildCount = item.ChildCount || 0;
+                                fullItem.RecursiveItemCount = item.ChildCount || 0;
+                                fullItem.ItemCount = item.ItemCount || 0;
+                                card = Jellyfin.boxsetToCard(fullItem);
+                                if (card) {
+                                    card._isBoxset = true; // Метка для onRender
+                                    boxsets.push(card);
+                                }
+                            } else if (itemType === 'playlist') {
+                                fullItem.ChildCount = item.ChildCount || 0;
+                                fullItem.RecursiveItemCount = item.ChildCount || 0;
+                                fullItem.ItemCount = item.ItemCount || 0;
+                                card = Jellyfin.boxsetToCard(fullItem);
+                                if (card) {
+                                    card._isPlaylist = true; // Метка для onRender
+                                    playlists.push(card);
+                                }
                             }
-                            
-                            if (card) cards.push(card);
                         }
 
-                        oncomplite([{
-                            title: 'Jellyfin',
-                            results: cards
-                        }]);
-                    }, function () {
+                        console.log('[Jellyfin Search] Movies:', movies.length, 'Series:', series.length, 'BoxSets:', boxsets.length, 'Playlists:', playlists.length);
+
+                        var finish = function () {
+                            // Формируем ленты
+                            var results = [];
+                            
+                            if (movies.length > 0) {
+                                results.push({
+                                    title: 'Jellyfin • Фильмы',
+                                    results: movies
+                                });
+                            }
+                            
+                            if (series.length > 0) {
+                                results.push({
+                                    title: 'Jellyfin • Сериалы',
+                                    results: series
+                                });
+                            }
+                            
+                            if (boxsets.length > 0) {
+                                results.push({
+                                    title: 'Jellyfin • Коллекции',
+                                    results: boxsets,
+                                    cardClass: function (item) { 
+                                        return new JellyfinFolderCard(item, 'media'); 
+                                    }
+                                });
+                            }
+                            
+                            if (playlists.length > 0) {
+                                results.push({
+                                    title: 'Jellyfin • Франшизы',
+                                    results: playlists,
+                                    cardClass: function (item) { 
+                                        return new JellyfinFolderCard(item, 'media'); 
+                                    }
+                                });
+                            }
+
+                            console.log('[Jellyfin Search] Results lines:', results.length);
+                            oncomplite(results);
+                        };
+
+                        // В Search/Hints обычно не приходит ChildCount, поэтому добираем
+                        // количество вложенных тайтлов отдельным запросом, чтобы показать бейдж.
+                        try {
+                            var ids = [];
+                            var seenIds = {};
+                            var pushId = function (id) {
+                                try { id = String(id || ''); } catch (e0) { id = ''; }
+                                if (!id) return;
+                                if (seenIds[id]) return;
+                                seenIds[id] = true;
+                                ids.push(id);
+                            };
+                            for (var bi = 0; bi < boxsets.length; bi++) pushId(boxsets[bi] && boxsets[bi].jellyfin_boxset_id);
+                            for (var pi = 0; pi < playlists.length; pi++) pushId(playlists[pi] && playlists[pi].jellyfin_boxset_id);
+
+                            if (!ids.length) return finish();
+
+                            var fetchCountsPerItem = function (idsList, done) {
+                                var outMap = {};
+                                var inFlight = 0;
+                                var idx = 0;
+                                var limit = 3;
+
+                                var parseCount = function (obj) {
+                                    var cnt = 0;
+                                    try { cnt = parseInt(obj && obj.ChildCount, 10) || 0; } catch (e0) { cnt = 0; }
+                                    if (!cnt) { try { cnt = parseInt(obj && obj.RecursiveItemCount, 10) || 0; } catch (e1) { cnt = 0; } }
+                                    if (!cnt) { try { cnt = parseInt(obj && obj.ItemCount, 10) || 0; } catch (e2) { cnt = 0; } }
+                                    return cnt;
+                                };
+
+                                var step = function () {
+                                    if (idx >= idsList.length && inFlight <= 0) return done(outMap);
+                                    while (inFlight < limit && idx < idsList.length) {
+                                        var oneId = idsList[idx++];
+                                        inFlight++;
+                                        (function (reqId) {
+                                            var oneUrl = server + '/Users/' + encodeURIComponent(Jellyfin.userId) + '/Items/' + encodeURIComponent(reqId) + '?Fields=ChildCount,RecursiveItemCount,ItemCount&api_key=' + encodeURIComponent(Jellyfin.token || '');
+                                            Jellyfin.request(oneUrl, 'GET', null, function (oneRes) {
+                                                try {
+                                                    var idr = '';
+                                                    try { idr = String(oneRes && (oneRes.Id || oneRes.id) || ''); } catch (e2) { idr = ''; }
+                                                    if (!idr) {
+                                                        try { idr = String(reqId || ''); } catch (e3) { idr = ''; }
+                                                    }
+                                                    var ccc = parseCount(oneRes);
+                                                    if (idr && ccc > 0) outMap[idr] = ccc;
+                                                } catch (e4) {}
+                                                inFlight--;
+                                                step();
+                                            }, function () {
+                                                inFlight--;
+                                                step();
+                                            }, { useAuthHeader: false, useTokenHeader: false, dataType: 'json', timeoutMs: 1000 * 10 });
+                                        })(oneId);
+                                    }
+                                };
+
+                                step();
+                            };
+
+                            var urlCounts = server + '/Users/' + encodeURIComponent(Jellyfin.userId) + '/Items?Ids=' + encodeURIComponent(ids.join(',')) + '&Recursive=false&IncludeItemTypes=BoxSet,Playlist&Fields=ChildCount,RecursiveItemCount,ItemCount&api_key=' + encodeURIComponent(Jellyfin.token || '');
+                            Jellyfin.request(urlCounts, 'GET', null, function (res2) {
+                                try {
+                                    var items2 = (res2 && (res2.Items || res2.items)) ? (res2.Items || res2.items) : [];
+                                    var map = {};
+                                    for (var ci = 0; ci < items2.length; ci++) {
+                                        var it2 = items2[ci];
+                                        if (!it2) continue;
+                                        var id2 = '';
+                                        try { id2 = String(it2.Id || it2.id || ''); } catch (e1) { id2 = ''; }
+                                        if (!id2) continue;
+                                        var cnt2 = 0;
+                                        try { cnt2 = parseInt(it2.ChildCount, 10) || 0; } catch (e2) { cnt2 = 0; }
+                                        if (!cnt2) { try { cnt2 = parseInt(it2.RecursiveItemCount, 10) || 0; } catch (e3) { cnt2 = 0; } }
+                                        if (!cnt2) { try { cnt2 = parseInt(it2.ItemCount, 10) || 0; } catch (e4) { cnt2 = 0; } }
+                                        if (cnt2 > 0) map[id2] = cnt2;
+                                    }
+
+                                    var applyCounts = function (arr) {
+                                        for (var ai = 0; ai < (arr || []).length; ai++) {
+                                            var c = arr[ai];
+                                            if (!c) continue;
+                                            var cid = '';
+                                            try { cid = String(c.jellyfin_boxset_id || c.jellyfin_id || c.id || ''); } catch (e4) { cid = ''; }
+                                            if (!cid) continue;
+                                            if (map[cid] && (!c.child_count || (parseInt(c.child_count, 10) || 0) <= 0)) {
+                                                c.child_count = map[cid];
+                                            }
+                                        }
+                                    };
+                                    if (Object.keys(map).length) {
+                                        applyCounts(boxsets);
+                                        applyCounts(playlists);
+                                        finish();
+                                        return;
+                                    }
+
+                                    fetchCountsPerItem(ids, function (map2) {
+                                        try {
+                                            var applyCounts2 = function (arr) {
+                                                for (var ai2 = 0; ai2 < (arr || []).length; ai2++) {
+                                                    var c2 = arr[ai2];
+                                                    if (!c2) continue;
+                                                    var cid2 = '';
+                                                    try { cid2 = String(c2.jellyfin_boxset_id || c2.jellyfin_id || c2.id || ''); } catch (e6) { cid2 = ''; }
+                                                    if (!cid2) continue;
+                                                    if (map2[cid2] && (!c2.child_count || (parseInt(c2.child_count, 10) || 0) <= 0)) {
+                                                        c2.child_count = map2[cid2];
+                                                    }
+                                                }
+                                            };
+                                            applyCounts2(boxsets);
+                                            applyCounts2(playlists);
+                                        } catch (e7) {}
+                                        finish();
+                                    });
+                                    return;
+                                } catch (e5) {}
+                                finish();
+                            }, function () {
+                                finish();
+                            }, { useAuthHeader: false, useTokenHeader: false, dataType: 'json', timeoutMs: 1000 * 10 });
+                        } catch (e0) {
+                            finish();
+                        }
+                    }, function (err) {
+                        console.warn('[Jellyfin Search] Error:', err);
                         oncomplite([]);
                     });
                 });
@@ -1546,7 +1770,131 @@
             Lampa.Search.addSource({
                 title: 'Jellyfin',
                 search: searchJellyfin,
-                params: { save: true }
+                params: { save: true },
+                onRender: function (line) {
+                    // Для лент с франшизами и коллекциями используем JellyfinFolderCard
+                    var t = '';
+                    try { t = String(line && line.data && line.data.title ? line.data.title : ''); } catch (e0) { t = ''; }
+                    if (t === 'Jellyfin • Франшизы' || t === 'Jellyfin • Коллекции') {
+                        try {
+                            line.use({
+                                onlyCreateAndAppend: function (element) {
+                                    if (!element) return;
+                                    if (!element.params) element.params = {};
+                                    
+                                    var card = new JellyfinFolderCard(element, 'media');
+                                    card.create();
+                                    
+                                    var html = $(card.item);
+                                    html.on('visible', function () {
+                                        try { card.visible(); } catch (e) {}
+                                    });
+
+                                    try {
+                                        var cc = 0;
+                                        try { cc = parseInt(element.child_count, 10) || 0; } catch (eCc0) { cc = 0; }
+                                        if (!cc) {
+                                            var fid = '';
+                                            try { fid = String(element.jellyfin_boxset_id || element.jellyfin_id || element.id || ''); } catch (eCc1) { fid = ''; }
+                                            if (fid) {
+                                                var jfServer = '';
+                                                try { jfServer = String(sget('jellyfin_server', JELLYFIN_SERVER) || '').replace(/\/$/, ''); } catch (eSrv0) { jfServer = ''; }
+                                                if (!jfServer) return;
+
+                                                Jellyfin._folderCounts = Jellyfin._folderCounts || {};
+                                                Jellyfin._folderCountsPending = Jellyfin._folderCountsPending || {};
+
+                                                var updateBadge = function (cnt) {
+                                                    try {
+                                                        if (!card || !card.badge_el) return;
+                                                        if (cnt > 0) {
+                                                            card.badge_el.textContent = cnt > 99 ? '99+' : String(cnt);
+                                                            card.badge_el.style.display = '';
+                                                        }
+                                                    } catch (eU0) {}
+                                                };
+
+                                                if (Jellyfin._folderCounts[fid]) {
+                                                    element.child_count = Jellyfin._folderCounts[fid];
+                                                    updateBadge(Jellyfin._folderCounts[fid]);
+                                                } else if (!Jellyfin._folderCountsPending[fid]) {
+                                                    Jellyfin._folderCountsPending[fid] = 1;
+                                                    var oneUrl = jfServer + '/Users/' + encodeURIComponent(Jellyfin.userId) + '/Items/' + encodeURIComponent(fid) + '?Fields=ChildCount,RecursiveItemCount,ItemCount&api_key=' + encodeURIComponent(Jellyfin.token || '');
+                                                    Jellyfin.request(oneUrl, 'GET', null, function (oneRes) {
+                                                        try {
+                                                            var cnt = 0;
+                                                            try { cnt = parseInt(oneRes && oneRes.ChildCount, 10) || 0; } catch (eCc2) { cnt = 0; }
+                                                            if (!cnt) { try { cnt = parseInt(oneRes && oneRes.RecursiveItemCount, 10) || 0; } catch (eCc3) { cnt = 0; } }
+                                                            if (!cnt) { try { cnt = parseInt(oneRes && oneRes.ItemCount, 10) || 0; } catch (eCc4) { cnt = 0; } }
+                                                            if (cnt > 0) {
+                                                                Jellyfin._folderCounts[fid] = cnt;
+                                                                element.child_count = cnt;
+                                                                updateBadge(cnt);
+                                                            }
+                                                        } catch (eCc5) {}
+                                                        try { delete Jellyfin._folderCountsPending[fid]; } catch (eCc6) {}
+                                                    }, function () {
+                                                        try { delete Jellyfin._folderCountsPending[fid]; } catch (eCc7) {}
+                                                    }, { useAuthHeader: false, useTokenHeader: false, dataType: 'json', timeoutMs: 1000 * 10 });
+                                                }
+                                            }
+                                        }
+                                    } catch (eCcX) {}
+                                    
+                                    var emit = function (event) {
+                                        var name = event.charAt(0).toUpperCase() + event.slice(1);
+                                        var only = false;
+                                        for (var i = 0; i < item.components.length; i++) {
+                                            var c = item.components[i];
+                                            var handler = c['only' + name];
+                                            if (typeof handler === 'function') only = handler;
+                                        }
+                                        if (only) return only.apply(item, Array.prototype.slice.call(arguments, 1));
+                                        for (var j = 0; j < item.components.length; j++) {
+                                            var c2 = item.components[j];
+                                            var handler2 = c2['on' + name];
+                                            if (typeof handler2 === 'function') handler2.apply(item, Array.prototype.slice.call(arguments, 1));
+                                        }
+                                    };
+
+                                    var use = function (module) {
+                                        var instance = typeof module === 'function' ? new module(item) : module;
+                                        if (item.components.indexOf(instance) >= 0) return;
+                                        item.components.push(instance);
+                                    };
+
+                                    var item = {
+                                        data: element,
+                                        params: element && element.params ? element.params : {},
+                                        html: html,
+                                        components: [],
+                                        emit: emit,
+                                        use: use,
+                                        create: function () {
+                                            html.on('hover:focus', function () { item.emit('focus', html, element); });
+                                            html.on('hover:touch', function () { item.emit('touch', html, element); });
+                                            html.on('hover:hover', function () { item.emit('hover', html, element); });
+                                            html.on('hover:enter', function () { item.emit('enter', html, element); });
+                                            html.on('hover:long', function () { item.emit('long', html, element); });
+                                        },
+                                        render: function () {
+                                            return html;
+                                        },
+                                        destroy: function () {
+                                            try { card.destroy(); } catch (e) {}
+                                        }
+                                    };
+
+                                    item.create();
+                                    this.emit('instance', item, element);
+                                    this.emit('append', item, element);
+                                }
+                            });
+                        } catch (e) {
+                            console.warn('[Jellyfin Search] onRender error:', e);
+                        }
+                    }
+                }
             });
         },
 
@@ -1685,9 +2033,12 @@
                 Lampa.Activity.push = function (params) {
                     try {
                         if (params && params.component === 'full' && params.source === 'jellyfin' && params.id) {
+                            console.log('[Jellyfin] Activity.push intercepted:', params);
                             // Если это BoxSet (папка-франшиза) — открываем browse, не плеер
                             var card = params.movie || params.card || params.data || {};
+                            console.log('[Jellyfin] Card data:', card);
                             var boxsetId = card.jellyfin_boxset_id || '';
+                            console.log('[Jellyfin] BoxSet ID:', boxsetId);
                             if (!boxsetId && params.id) {
                                 // Проверяем по сохранённой карте tmdb→jellyfin
                                 // Если id совпадает с известным boxset — тоже browse
