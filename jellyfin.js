@@ -2885,7 +2885,7 @@
             'body.size--bigger .jf-lib-card{-webkit-flex-basis:31.5%;flex-basis:31.5%}' +
             // Адаптив для мобильных устройств
             '@media screen and (max-width:480px){' +
-                '.jf-lib-card{-webkit-flex:0 0 48% !important;flex:0 0 48% !important;width:48% !important;min-width:48% !important;max-width:48% !important}' +
+                '.jf-lib-card{-webkit-flex:0 0 98% !important;flex:0 0 98% !important;width:98% !important;min-width:98% !important;max-width:98% !important}' +
                 '.jf-folder-card--horizontal{-webkit-flex:0 0 48% !important;flex:0 0 48% !important;width:48% !important;min-width:48% !important;max-width:48% !important}' +
                 '.jf-folder-card--vertical{-webkit-flex:0 0 31% !important;flex:0 0 31% !important;width:31% !important;min-width:31% !important;max-width:31% !important}' +
             '}';
