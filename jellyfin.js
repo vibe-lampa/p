@@ -1506,7 +1506,7 @@
                     var url = server + '/Users/' + Jellyfin.userId + '/Items';
                     var params = {
                         SearchTerm: query,
-                        IncludeItemTypes: 'Movie,Series,BoxSet',
+                        IncludeItemTypes: 'Movie,Series,BoxSet,Playlist,Folder,CollectionFolder',
                         Recursive: true,
                         Limit: 50,
                         Fields: 'PrimaryImageAspectRatio,MediaStreams,MediaSources,Overview',
@@ -1519,7 +1519,17 @@
 
                         for (var i = 0; i < items.length; i++) {
                             var item = items[i];
-                            var card = Jellyfin.itemToCard(item);
+                            var itemType = String(item.Type || '').toLowerCase();
+                            var card = null;
+                            
+                            // BoxSet, Playlist, Folder - это контейнеры, используем boxsetToCard
+                            if (itemType === 'boxset' || itemType === 'playlist' || itemType === 'folder' || itemType === 'collectionfolder') {
+                                card = Jellyfin.boxsetToCard(item);
+                            } else {
+                                // Movie, Series - обычный контент
+                                card = Jellyfin.jellyfinToCard(item);
+                            }
+                            
                             if (card) cards.push(card);
                         }
 
