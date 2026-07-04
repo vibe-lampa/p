@@ -2882,7 +2882,13 @@
             '.jf-folder-card--vertical.card--loaded .jf-folder-card__img{opacity:1 !important}' +
             '.jf-folder-card--vertical .jf-folder-card__badge{position:absolute;top:.5em;right:.5em;min-width:1.9em;height:1.9em;padding:0 .5em;border-radius:1em;background:#2f9bf0;color:#fff;font-size:.9em;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.5);z-index:5}' +
             '.jf-folder-card--vertical .card__title{margin-top:.5em;text-align:center}' +
-            'body.size--bigger .jf-lib-card{-webkit-flex-basis:31.5%;flex-basis:31.5%}';
+            'body.size--bigger .jf-lib-card{-webkit-flex-basis:31.5%;flex-basis:31.5%}' +
+            // Адаптив для мобильных устройств
+            '@media screen and (max-width:480px){' +
+                '.jf-lib-card{-webkit-flex:0 0 48% !important;flex:0 0 48% !important;width:48% !important;min-width:48% !important;max-width:48% !important}' +
+                '.jf-folder-card--horizontal{-webkit-flex:0 0 48% !important;flex:0 0 48% !important;width:48% !important;min-width:48% !important;max-width:48% !important}' +
+                '.jf-folder-card--vertical{-webkit-flex:0 0 31% !important;flex:0 0 31% !important;width:31% !important;min-width:31% !important;max-width:31% !important}' +
+            '}';
 
         Lampa.Template.add('jellyfin_folders_css', '<style>' + css + '</style>');
         $('body').append(Lampa.Template.get('jellyfin_folders_css', {}, true));
