@@ -1134,7 +1134,7 @@
                     var startIndex = Math.max(0, (reqPage - 1) * 20);
                     var base = server + '/Users/' + encodeURIComponent(uid) + '/Items';
                     var query = [];
-                    query.push('Recursive=true');
+                    query.push('Recursive=' + (media === 'boxset' ? 'false' : 'true'));
                     query.push('StartIndex=' + startIndex);
                     query.push('Limit=20');
                     
@@ -1142,13 +1142,13 @@
                     if (mode === 'resume') {
                         query.push('Fields=ProviderIds,PremiereDate,ProductionYear,CommunityRating,Type,UserData,SeriesId,SeriesName,ParentIndexNumber,IndexNumber');
                     } else {
-                        query.push('Fields=ProviderIds,PremiereDate,ProductionYear,CommunityRating,Type');
+                        query.push('Fields=ProviderIds,PremiereDate,ProductionYear,CommunityRating,Type,ChildCount,RecursiveItemCount,ItemCount');
                     }
 
                     if (mode === 'resume') {
                         base = server + '/Users/' + encodeURIComponent(uid) + '/Items/Resume';
                     } else {
-                        var types = (media === 'tv') ? 'Series' : 'Movie';
+                        var types = (media === 'tv') ? 'Series' : (media === 'boxset' ? 'BoxSet,Playlist' : 'Movie');
                         query.push('IncludeItemTypes=' + types);
                         if (mode === 'premiere') query.push('SortBy=PremiereDate,DateCreated');
                         else query.push('SortBy=DateCreated');
@@ -1178,7 +1178,13 @@
                         // открываются напрямую через сам Jellyfin.
                         var cards = [];
                         for (var i = 0; i < items.length; i++) {
-                            var c = this.jellyfinToCard(items[i]);
+                            var it = items[i];
+                            if (!it) continue;
+                            var itemType = '';
+                            try { itemType = String(it.Type || it.type || '').toLowerCase(); } catch (eT0) { itemType = ''; }
+                            var c;
+                            if (itemType === 'boxset' || itemType === 'playlist') c = this.boxsetToCard(it);
+                            else c = this.jellyfinToCard(it);
                             if (!c) continue;
                             cards.push(c);
                         }
@@ -1268,6 +1274,8 @@
                         addDef('movie', 'premiere', mName, v.Id);
                     } else if (ct === 'tvshows') {
                         addDef('tv', 'latest', name || 'Сериалы', v.Id);
+                    } else if (ct === 'playlists') {
+                        addDef('boxset', 'latest', name || 'Франшизы', v.Id);
                     } else {
                         // Библиотека с неизвестным/смешанным типом (mixed,
                         // homevideos, boxsets, отсутствующий CollectionType
@@ -1375,6 +1383,8 @@
                         addDef('tv', 'latest', name || 'Сериалы', v.Id);
                     } else if (ct === 'boxsets') {
                         // boxsets — только карточка в "Мои медиатеки", лент не генерируем
+                    } else if (ct === 'playlists') {
+                        addDef('boxset', 'latest', name || 'Франшизы', v.Id);
                     } else {
                         var genName = name || 'Библиотека';
                         addDef('movie', 'latest', genName, v.Id);
@@ -1421,12 +1431,20 @@
                     var opts = def.parentId ? { parentId: def.parentId } : {};
                     self.libraryItems(def.mode, def.media, 1, function (data) {
                         if (data && data.cards && data.cards.length) okCount++; else emptyCount++;
-                        pushLine({
+                        var line = {
                             title: 'Jellyfin \u2022 ' + def.title,
                             url: def.key,
                             results: data.cards || [],
                             total_pages: Math.max(1, Math.ceil((data.total || 0) / 20))
-                        });
+                        };
+                        var hasBoxsets = false;
+                        for (var bi = 0; bi < (line.results || []).length; bi++) {
+                            if (line.results[bi] && line.results[bi].jellyfin_boxset_id) { hasBoxsets = true; break; }
+                        }
+                        if (hasBoxsets) {
+                            line.cardClass = function (item) { return new JellyfinFolderCard(item, 'media'); };
+                        }
+                        pushLine(line);
                         oneDone();
                     }, function (err) {
                         failCount++;
@@ -1926,16 +1944,22 @@
                         var page = params.page || 1;
 
                         if (parsed.path === 'latest') {
-                            var media = parsed.query.type === 'tv' ? 'tv' : 'movie';
+                            var media = parsed.query.type === 'tv' ? 'tv' : (parsed.query.type === 'boxset' ? 'boxset' : 'movie');
                             var pid = parsed.query.parentId || parsed.query.topParentId || '';
                             Jellyfin.libraryItems('latest', media, page, function (data) {
-                                oncomplite({
-                                    title: (media === 'tv') ? 'Jellyfin • Последние сериалы' : 'Jellyfin • Последние фильмы',
-                                    results: data.cards,
+                                var out = {
+                                    title: (params && params.title) ? params.title : ((media === 'tv') ? 'Jellyfin • Последние сериалы' : (media === 'boxset' ? 'Jellyfin • Франшизы' : 'Jellyfin • Последние фильмы')),
+                                    results: data.cards || [],
                                     page: page,
                                     total_pages: Math.max(1, Math.ceil((data.total || 0) / 20)),
                                     total_results: data.total || 0
-                                });
+                                };
+                                var hasBoxsets = false;
+                                for (var ci = 0; ci < (out.results || []).length; ci++) {
+                                    if (out.results[ci] && out.results[ci].jellyfin_boxset_id) { hasBoxsets = true; break; }
+                                }
+                                if (hasBoxsets) out.cardClass = function (item) { return new JellyfinFolderCard(item, 'media'); };
+                                oncomplite(out);
                             }, function () {
                                 if (onerror) onerror({ status: 404 });
                             }, true, { parentId: pid });
@@ -3259,7 +3283,7 @@
             '.jf-lib-card>.card__title{max-height:0 !important;overflow:hidden !important;padding:0 !important;margin:0 !important;visibility:hidden !important}' +
             // Горизонтальные карточки франшиз (16:9) - фикс для фокусной рамки
             '.jf-folder-card--horizontal{position:relative}' +
-            '.jf-folder-card--horizontal .card__view{padding-bottom:56.25% !important;position:relative;border-radius:.8em !important;overflow:visible !important;background-color:#2b2b2b}' +
+            '.jf-folder-card--horizontal .card__view{padding-bottom:100% !important;position:relative;border-radius:.8em !important;overflow:visible !important;background-color:#2b2b2b}' +
             '.jf-folder-card--horizontal .card__view::after{content:"";position:absolute;top:0;left:0;right:0;bottom:0;border-radius:.8em;overflow:hidden;pointer-events:none}' +
             '.jf-folder-card--horizontal .jf-folder-card__img{width:100%;height:100%;position:absolute;top:0;left:0;object-fit:cover;opacity:0;transition:opacity .2s ease;border-radius:.8em !important}' +
             '.jf-folder-card--horizontal.card--loaded .jf-folder-card__img{opacity:1 !important}' +
@@ -3310,9 +3334,35 @@
                 Lampa.Activity.push({
                     url: url,
                     title: data.title || '',
-                    component: 'category_full',
+                    component: String(url).indexOf('jellyfin://') === 0 ? (String(url).indexOf('jellyfin://browse') === 0 ? 'jellyfin_browse' : 'jellyfin_category_full') : 'category_full',
                     page: 1
                 });
+            };
+            return comp;
+        });
+
+        Lampa.Component.add('jellyfin_category_full', function (object) {
+            var comp = new Lampa.InteractionCategory(object);
+            comp.create = function () {
+                var _this = this;
+                Lampa.Api.list(object, function (data) {
+                    _this.build(data);
+                }, this.empty.bind(this));
+            };
+            comp.nextPageReuest = function (obj2, resolve, reject) {
+                Lampa.Api.list(obj2, resolve.bind(comp), reject.bind(comp));
+            };
+            comp.cardRender = function (obj2, element, card) {
+                if (element && element.jellyfin_boxset_id) {
+                    card.onEnter = function () {
+                        Lampa.Activity.push({
+                            url: 'jellyfin://browse?parentId=' + encodeURIComponent(element.jellyfin_boxset_id) + '&kind=media&title=' + encodeURIComponent(element.title || ''),
+                            title: element.title || '',
+                            component: 'jellyfin_browse',
+                            page: 1
+                        });
+                    };
+                }
             };
             return comp;
         });
