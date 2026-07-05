@@ -37,6 +37,18 @@
         ticksPerSecond: 10000000,
         activePlayback: null,
 
+        delayedNoty: function (text, delayMs, timeMs) {
+            var t = null;
+            try {
+                t = setTimeout(function () {
+                    try { if (window.Lampa && Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show(text, { time: timeMs || 2000 }); } catch (e0) {}
+                }, typeof delayMs === 'number' ? delayMs : 450);
+            } catch (e1) {}
+            return function () {
+                try { if (t) clearTimeout(t); } catch (e2) {}
+            };
+        },
+
         getDeviceId: function() {
             var id = sget('jellyfin_device_id', '');
             if (!id) {
@@ -2058,6 +2070,7 @@
                     try {
                         if (params && params.component === 'full' && params.source === 'jellyfin' && params.id) {
                             console.log('[Jellyfin] Activity.push intercepted:', params);
+                            var stopNoty = Jellyfin.delayedNoty('Jellyfin: открываю...', 450, 2000);
                             // Если это BoxSet (папка-франшиза) — открываем browse, не плеер
                             var card = params.movie || params.card || params.data || {};
                             console.log('[Jellyfin] Card data:', card);
@@ -2076,6 +2089,7 @@
                             }
 
                             if (boxsetId) {
+                                try { stopNoty(); } catch (e0) {}
                                 // BoxSet — открываем содержимое как browse
                                 Lampa.Activity.push({
                                     url: 'jellyfin://browse?parentId=' + encodeURIComponent(boxsetId) + '&kind=media&title=' + encodeURIComponent(card.title || card.name || ''),
@@ -2094,6 +2108,7 @@
                             };
                             Jellyfin.authenticate(function () {
                                 Jellyfin.getItemDetails(jfId, function (full) {
+                                    try { stopNoty(); } catch (e0) {}
                                     // Дополнительная проверка: если сервер вернул BoxSet — открываем browse
                                     if (full && String(full.Type || '').toLowerCase() === 'boxset') {
                                         Lampa.Activity.push({
@@ -3022,8 +3037,10 @@
                 }
 
                 if (jfId) {
+                    var stopNoty = Jellyfin.delayedNoty('Jellyfin: открываю...', 450, 2000);
                     Jellyfin.authenticate(function () {
                         Jellyfin.getItemDetails(jfId, function (full) {
+                            try { stopNoty(); } catch (e0) {}
                             Jellyfin.openPlayMenu(full || { Id: jfId, Name: movie.title || movie.name || 'Jellyfin' }, restore);
                         });
                     });
@@ -3345,9 +3362,11 @@
             var comp = new Lampa.InteractionCategory(object);
             comp.create = function () {
                 var _this = this;
+                try { this.activity.loader(true); } catch (e0) {}
                 Lampa.Api.list(object, function (data) {
                     _this.build(data);
                 }, this.empty.bind(this));
+                return this.render();
             };
             comp.nextPageReuest = function (obj2, resolve, reject) {
                 Lampa.Api.list(obj2, resolve.bind(comp), reject.bind(comp));
@@ -3372,9 +3391,11 @@
             var comp = new Lampa.InteractionCategory(object);
             comp.create = function () {
                 var _this = this;
+                try { this.activity.loader(true); } catch (e0) {}
                 Jellyfin.fetchBrowseData(object, function (data) {
                     _this.build(data);
                 }, this.empty.bind(this));
+                return this.render();
             };
             comp.nextPageReuest = function (obj2, resolve, reject) {
                 Jellyfin.fetchBrowseData(obj2, resolve.bind(comp), reject.bind(comp));
