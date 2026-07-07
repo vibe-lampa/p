@@ -38,14 +38,78 @@
         activePlayback: null,
 
         delayedNoty: function (text, delayMs, timeMs) {
-            var t = null;
+            var shown = false;
+            var timer = null;
+            var delay = typeof delayMs === 'number' ? delayMs : 450;
+            var lifetime = typeof timeMs === 'number' ? timeMs : 30000;
+
             try {
-                t = setTimeout(function () {
-                    try { if (window.Lampa && Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show(text, { time: timeMs || 2000 }); } catch (e0) {}
-                }, typeof delayMs === 'number' ? delayMs : 450);
+                timer = setTimeout(function () {
+                    shown = true;
+                    try { if (window.Lampa && Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show(text, { time: lifetime }); } catch (e0) {}
+                }, delay);
             } catch (e1) {}
+
+            return function stop() {
+                try { if (timer) clearTimeout(timer); } catch (e2) {}
+                if (!shown) return;
+                try {
+                    var root = document.querySelector('.noty');
+                    var body = root ? root.querySelector('.noty__text') : null;
+                    var current = body ? String(body.innerHTML || '') : '';
+                    if (root && current === String(text)) root.classList.remove('noty--visible');
+                } catch (e3) {}
+            };
+        },
+
+        wrapSelectOnBack: function (onBack) {
+            var prev = null;
+            var focusEl = null;
+            try { prev = Lampa.Controller && Lampa.Controller.enabled ? Lampa.Controller.enabled() : null; } catch (e0) { prev = null; }
+            try { focusEl = document.querySelector('.selector.focus') || document.querySelector('.selector.hover'); } catch (e1) { focusEl = null; }
+
             return function () {
-                try { if (t) clearTimeout(t); } catch (e2) {}
+                try { if (typeof onBack === 'function') onBack(); } catch (e2) {}
+
+                setTimeout(function () {
+                    try {
+                        if (document.body && document.body.classList && document.body.classList.contains('selectbox--open')) return;
+                        if (!Lampa.Controller || !Lampa.Controller.enabled || !Lampa.Controller.toggle) return;
+                        var enabled = Lampa.Controller.enabled();
+                        if (!enabled || enabled.name !== 'select') return;
+
+                        var prevName = prev && prev.name ? prev.name : 'content';
+                        if (prevName === 'search') {
+                            var isSearchOpen = false;
+                            try { isSearchOpen = (document.body && document.body.classList && document.body.classList.contains('search--open')) || !!document.querySelector('.search,.search-box'); } catch (eS0) { isSearchOpen = false; }
+                            if (!isSearchOpen) prevName = 'content';
+                        }
+
+                        Lampa.Controller.toggle(prevName);
+
+                        var target = null;
+                        if (focusEl && focusEl.offsetParent !== null && !focusEl.closest('.selectbox')) target = focusEl;
+                        if (!target) {
+                            try { target = document.querySelector('.full-start-new__buttons .selector, .full-start__buttons .selector'); } catch (eF0) { target = null; }
+                        }
+                        if (!target) {
+                            try {
+                                var all = document.querySelectorAll('.selector');
+                                for (var i = 0; i < all.length; i++) {
+                                    var el = all[i];
+                                    if (!el || el.offsetParent === null) continue;
+                                    if (el.closest('.selectbox')) continue;
+                                    if (el.closest('.noty')) continue;
+                                    target = el;
+                                    break;
+                                }
+                            } catch (eF1) { target = null; }
+                        }
+                        if (target) {
+                            try { Lampa.Controller.collectionFocus(target, document.body, true); } catch (e3) {}
+                        }
+                    } catch (e4) {}
+                }, 10);
             };
         },
 
@@ -171,9 +235,16 @@
 
                 var path = '';
                 if (type === 'backdrop') path = '/Items/' + encodeURIComponent(itemId) + '/Images/Backdrop/0';
+                else if (type === 'thumb') path = '/Items/' + encodeURIComponent(itemId) + '/Images/Thumb';
+                else if (type === 'logo') path = '/Items/' + encodeURIComponent(itemId) + '/Images/Logo';
                 else path = '/Items/' + encodeURIComponent(itemId) + '/Images/Primary';
 
-                var url = server + path + '?maxWidth=' + (type === 'backdrop' ? '1280' : '420') + '&quality=90';
+                var maxW = '420';
+                if (type === 'backdrop') maxW = '1280';
+                else if (type === 'thumb') maxW = '1280';
+                else if (type === 'logo') maxW = '600';
+
+                var url = server + path + '?maxWidth=' + maxW + '&quality=90';
                 if (token) url += '&api_key=' + encodeURIComponent(token);
                 return url;
             } catch (e0) {
@@ -378,6 +449,271 @@
             var mm = (m < 10 ? '0' : '') + m;
             var sss = (ss < 10 ? '0' : '') + ss;
             return (h ? (h + ':') : '') + mm + ':' + sss;
+        },
+
+        enhanceResumeCards: function () {
+            if (this._resumeCardsEnhanced) return;
+            this._resumeCardsEnhanced = true;
+
+            try {
+                if (!document.getElementById('jf-resume-cards-style')) {
+                    $('body').append('<style id="jf-resume-cards-style">' +
+                        '.jf-resume__meta{position:absolute;left:.45em;right:.45em;bottom:1.05em;background:rgba(0,0,0,.55);color:#fff;font-size:.9em;padding:.25em .6em;border-radius:1em;z-index:2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2;pointer-events:none;opacity:0;transition:opacity .15s ease}' +
+                        '.jf-resume__line{position:absolute;left:.45em;right:.45em;bottom:.45em;margin:0;z-index:2;background:rgba(0,0,0,.35);pointer-events:none;opacity:0;transition:opacity .15s ease}' +
+                        '.jf-resume__line>div{background:#fff}' +
+                        '.card.jf-resume--ready .card-watched{display:none!important}' +
+                        '.card.jf-resume--ready .card__vote{z-index:5}' +
+                        '.card.jf-resume--has-vote .jf-resume__meta,.card.jf-resume--has-vote .jf-resume__line{right:3.6em}' +
+                        '.card.focus .jf-resume__meta,.card.focus .jf-resume__line{opacity:1}' +
+                        '</style>');
+                }
+            } catch (e0) {}
+
+            var self = this;
+            var enhanceOne = function (cardEl) {
+                try {
+                    if (!cardEl || cardEl.nodeType !== 1) return;
+                    if (!cardEl.classList || !cardEl.classList.contains('card')) return;
+                    if (cardEl.classList.contains('jf-resume--ready')) return;
+                    var data = cardEl.card_data || null;
+                    if (!data || !data.jellyfin_resume || !data.jellyfin_resume_line) return;
+                    cardEl.classList.add('jf-resume--ready');
+
+                    var view = cardEl.querySelector('.card__view');
+                    if (!view) return;
+
+                    try {
+                        if (cardEl.querySelector('.card__vote')) cardEl.classList.add('jf-resume--has-vote');
+                    } catch (eV0) {}
+
+                    try {
+                        var cw = view.querySelector('.card-watched');
+                        if (cw && cw.remove) cw.remove();
+                    } catch (eCW0) {}
+
+                    var meta = data.jellyfin_resume || {};
+                    var percent = 0;
+                    try { percent = Math.max(0, Math.min(100, parseFloat(meta.percent) || 0)); } catch (e1) { percent = 0; }
+
+                    var labelParts = [];
+                    if (meta.episodeLabel) labelParts.push(String(meta.episodeLabel));
+                    if (meta.timeLabel) labelParts.push(String(meta.timeLabel));
+                    var label = labelParts.filter(Boolean).join(' • ');
+
+                    if (label) {
+                        var metaEl = document.createElement('div');
+                        metaEl.className = 'jf-resume__meta';
+                        metaEl.textContent = label;
+                        view.appendChild(metaEl);
+                    }
+
+                    var tl = document.createElement('div');
+                    tl.className = 'time-line jf-resume__line';
+                    tl.setAttribute('data-hash', String(meta.hash || ('jf:' + (data.jellyfin_item_id || data.jellyfin_id || data.id || ''))));
+                    var inner = document.createElement('div');
+                    inner.style.width = percent + '%';
+                    tl.appendChild(inner);
+                    view.appendChild(tl);
+
+                    var ensureSeriesMeta = function () {
+                        try {
+                            var applyDom = function () {
+                                try {
+                                    var parts2 = [];
+                                    if (data.jellyfin_resume && data.jellyfin_resume.episodeLabel) parts2.push(String(data.jellyfin_resume.episodeLabel));
+                                    if (data.jellyfin_resume && data.jellyfin_resume.timeLabel) parts2.push(String(data.jellyfin_resume.timeLabel));
+                                    var lbl2 = parts2.filter(Boolean).join(' • ');
+                                    var curMetaEl2 = view.querySelector('.jf-resume__meta');
+                                    if (lbl2) {
+                                        if (!curMetaEl2) {
+                                            curMetaEl2 = document.createElement('div');
+                                            curMetaEl2.className = 'jf-resume__meta';
+                                            view.appendChild(curMetaEl2);
+                                        }
+                                        curMetaEl2.textContent = lbl2;
+                                    }
+                                    if (data.jellyfin_resume && typeof data.jellyfin_resume.percent !== 'undefined') {
+                                        var p2 = Math.max(0, Math.min(100, parseFloat(data.jellyfin_resume.percent) || 0));
+                                        inner.style.width = p2 + '%';
+                                    }
+                                } catch (eDOM1) {}
+                            };
+
+                            if (data.jellyfin_resume && data.jellyfin_resume.episodeLabel) {
+                                applyDom();
+                                return;
+                            }
+
+                            var itemId = '';
+                            try { itemId = String(data.jellyfin_item_id || data.jellyfin_id || ''); } catch (eI0) { itemId = ''; }
+                            if (itemId) {
+                                if (!self._resumeItemCache) self._resumeItemCache = {};
+                                if (!self._resumeItemInflight) self._resumeItemInflight = {};
+
+                                var ic = self._resumeItemCache[itemId];
+                                if (ic && (ic.episodeLabel || ic.timeLabel)) {
+                                    try {
+                                        data.jellyfin_resume = data.jellyfin_resume || {};
+                                        if (ic.episodeLabel) data.jellyfin_resume.episodeLabel = ic.episodeLabel;
+                                        if (ic.timeLabel) data.jellyfin_resume.timeLabel = ic.timeLabel;
+                                        if (typeof ic.percent !== 'undefined') data.jellyfin_resume.percent = ic.percent;
+                                        if (ic.seriesId && !data.jellyfin_resume_series_id) data.jellyfin_resume_series_id = ic.seriesId;
+                                    } catch (eIC0) {}
+                                    applyDom();
+                                    return;
+                                }
+
+                                if (!self._resumeItemInflight[itemId]) {
+                                    self._resumeItemInflight[itemId] = true;
+                                    self.getItemDetails(itemId, function (full) {
+                                        try { delete self._resumeItemInflight[itemId]; } catch (eIF0) {}
+                                        if (!full || !full.Id) return;
+
+                                        var tLower = '';
+                                        try { tLower = String(full.Type || '').toLowerCase(); } catch (eTL) { tLower = ''; }
+
+                                        if (tLower === 'episode') {
+                                            var sNo0 = '';
+                                            var eNo0 = '';
+                                            try { sNo0 = full.ParentIndexNumber ? String(full.ParentIndexNumber) : ''; } catch (eS0) { sNo0 = ''; }
+                                            try { eNo0 = full.IndexNumber ? String(full.IndexNumber) : ''; } catch (eE0) { eNo0 = ''; }
+                                            var epLabel0 = (sNo0 || eNo0) ? ('S' + (sNo0 || '?') + 'E' + (eNo0 || '?')) : '';
+
+                                            var resumeSec0 = 0;
+                                            var durSec0 = 0;
+                                            try { resumeSec0 = self.getResumeSecondsFromItem(full); } catch (eRS0) { resumeSec0 = 0; }
+                                            try { durSec0 = self.getDurationSecondsFromItem(full); } catch (eDS0) { durSec0 = 0; }
+                                            var timeLabel0 = '';
+                                            try {
+                                                var durStr0 = durSec0 > 0 ? self.formatSecondsShort(durSec0) : '';
+                                                var posStr0 = resumeSec0 > 0 ? self.formatSecondsShort(resumeSec0) : '';
+                                                if (durStr0 && posStr0) timeLabel0 = posStr0 + '/' + durStr0;
+                                                else timeLabel0 = durStr0 || posStr0 || '';
+                                            } catch (eT0) { timeLabel0 = ''; }
+                                            var pct0 = 0;
+                                            try { pct0 = durSec0 ? ((resumeSec0 / durSec0) * 100) : 0; } catch (eP0) { pct0 = 0; }
+                                            pct0 = Math.max(0, Math.min(100, pct0));
+
+                                            try {
+                                                data.jellyfin_resume = data.jellyfin_resume || {};
+                                                if (epLabel0) data.jellyfin_resume.episodeLabel = epLabel0;
+                                                if (timeLabel0) data.jellyfin_resume.timeLabel = timeLabel0;
+                                                if (pct0) data.jellyfin_resume.percent = pct0;
+                                            } catch (eU0) {}
+
+                                            try { self._resumeItemCache[itemId] = { episodeLabel: epLabel0, timeLabel: timeLabel0, percent: pct0 }; } catch (eC0) {}
+                                            applyDom();
+                                            return;
+                                        }
+
+                                        if (tLower === 'series') {
+                                            try { data.jellyfin_resume_series_id = String(full.Id); } catch (eS1) {}
+                                            try { self._resumeItemCache[itemId] = { seriesId: String(full.Id) }; } catch (eC1) {}
+                                            try { applyDom(); } catch (eD1) {}
+                                            try { $(cardEl).trigger('hover:focus.jf_resume'); } catch (eT1) {}
+                                            return;
+                                        }
+                                    });
+                                }
+                            }
+
+                            if (data.jellyfin_resume && data.jellyfin_resume.episodeLabel) {
+                                applyDom();
+                                return;
+                            }
+
+                            if (!data.jellyfin_resume_series_id) return;
+                            var sid = String(data.jellyfin_resume_series_id || '');
+                            if (!sid) return;
+
+                            if (!self._resumeSeriesCache) self._resumeSeriesCache = {};
+                            if (!self._resumeSeriesInflight) self._resumeSeriesInflight = {};
+
+                            var cached = self._resumeSeriesCache[sid];
+                            if (cached && (cached.episodeLabel || cached.timeLabel)) {
+                                try {
+                                    data.jellyfin_resume = data.jellyfin_resume || {};
+                                    if (cached.episodeLabel) data.jellyfin_resume.episodeLabel = cached.episodeLabel;
+                                    if (cached.timeLabel) data.jellyfin_resume.timeLabel = cached.timeLabel;
+                                    if (typeof cached.percent !== 'undefined') data.jellyfin_resume.percent = cached.percent;
+                                } catch (eC2) {}
+                                applyDom();
+                                return;
+                            }
+
+                            if (self._resumeSeriesInflight[sid]) return;
+                            self._resumeSeriesInflight[sid] = true;
+                            self.getSeriesResume(sid, function (resumeEpisode) {
+                                try { delete self._resumeSeriesInflight[sid]; } catch (eIR0) {}
+                                var sNo = '';
+                                var eNo = '';
+                                try { sNo = resumeEpisode && resumeEpisode.ParentIndexNumber ? String(resumeEpisode.ParentIndexNumber) : ''; } catch (eS2) { sNo = ''; }
+                                try { eNo = resumeEpisode && resumeEpisode.IndexNumber ? String(resumeEpisode.IndexNumber) : ''; } catch (eE2) { eNo = ''; }
+                                var epLabel = (sNo || eNo) ? ('S' + (sNo || '?') + 'E' + (eNo || '?')) : '';
+
+                                var resumeSec = 0;
+                                var durSec = 0;
+                                try { resumeSec = self.getResumeSecondsFromItem(resumeEpisode); } catch (eRS1) { resumeSec = 0; }
+                                try { durSec = self.getDurationSecondsFromItem(resumeEpisode); } catch (eDS1) { durSec = 0; }
+                                var timeLabel2 = '';
+                                try {
+                                    var durStr2 = durSec > 0 ? self.formatSecondsShort(durSec) : '';
+                                    var posStr2 = resumeSec > 0 ? self.formatSecondsShort(resumeSec) : '';
+                                    if (durStr2 && posStr2) timeLabel2 = posStr2 + '/' + durStr2;
+                                    else timeLabel2 = durStr2 || posStr2 || '';
+                                } catch (eTL0) { timeLabel2 = ''; }
+
+                                var pct = 0;
+                                try { pct = durSec ? ((resumeSec / durSec) * 100) : 0; } catch (eP1) { pct = 0; }
+                                pct = Math.max(0, Math.min(100, pct));
+
+                                try { self._resumeSeriesCache[sid] = { episodeLabel: epLabel, timeLabel: timeLabel2, percent: pct }; } catch (eSC0) {}
+
+                                try {
+                                    data.jellyfin_resume = data.jellyfin_resume || {};
+                                    if (epLabel) data.jellyfin_resume.episodeLabel = epLabel;
+                                    if (timeLabel2) data.jellyfin_resume.timeLabel = timeLabel2;
+                                    if (pct) data.jellyfin_resume.percent = pct;
+                                } catch (eU1) {}
+
+                                applyDom();
+                            }.bind(self), function () {
+                                try { delete self._resumeSeriesInflight[sid]; } catch (eIR1) {}
+                            });
+                        } catch (e0) {}
+                    };
+
+                    try {
+                        $(cardEl).off('hover:focus.jf_resume');
+                        $(cardEl).on('hover:focus.jf_resume', function () { ensureSeriesMeta(); });
+                    } catch (eF0) {}
+                } catch (e2) {}
+            };
+
+            try {
+                var mo = new MutationObserver(function (mutations) {
+                    for (var i = 0; i < mutations.length; i++) {
+                        var m = mutations[i];
+                        if (!m || !m.addedNodes) continue;
+                        for (var j = 0; j < m.addedNodes.length; j++) {
+                            var n = m.addedNodes[j];
+                            if (!n || n.nodeType !== 1) continue;
+                            if (n.classList && n.classList.contains('card')) enhanceOne(n);
+                            try {
+                                var list = n.querySelectorAll ? n.querySelectorAll('.card') : [];
+                                for (var k = 0; k < (list ? list.length : 0); k++) enhanceOne(list[k]);
+                            } catch (e3) {}
+                        }
+                    }
+                });
+                mo.observe(document.body, { childList: true, subtree: true });
+                this._resumeCardsObserver = mo;
+            } catch (e4) {}
+
+            try {
+                var existing = document.querySelectorAll('.card');
+                for (var z = 0; z < (existing ? existing.length : 0); z++) enhanceOne(existing[z]);
+            } catch (e5) {}
         },
 
         openContinuePopup: function (opts) {
@@ -933,17 +1269,22 @@
                 var date = '';
                 try { date = String(it.PremiereDate || it.ProductionYear || '').slice(0, 10); } catch (e1) { date = ''; }
 
-                // Для эпизодов (например, строка "Продолжить просмотр") id/tmdb
-                // эпизода не годится для открытия карточки сериала — это
-                // отдельный TMDB-объект серии, а не шоу. Поэтому эпизоды
-                // всегда остаются "родными" jellyfin-карточками с играбельным id,
-                // а название строится из имени сериала + номера серии.
+                var resumePosSec = 0;
+                var resumeDurSec = 0;
+                var resumePercent = 0;
+                try { resumePosSec = it && it.UserData ? this.ticksToSeconds(it.UserData.PlaybackPositionTicks || 0) : 0; } catch (ePos0) { resumePosSec = 0; }
+                try { resumeDurSec = this.ticksToSeconds(it.RunTimeTicks || 0); } catch (eDur0) { resumeDurSec = 0; }
+                try { resumePercent = it && it.UserData && typeof it.UserData.PlayedPercentage !== 'undefined' ? (parseFloat(it.UserData.PlayedPercentage) || 0) : 0; } catch (ePct0) { resumePercent = 0; }
+                if (!resumePercent && resumeDurSec > 0 && resumePosSec > 0) resumePercent = (resumePosSec / resumeDurSec) * 100;
+                if (resumePercent < 0) resumePercent = 0;
+                if (resumePercent > 100) resumePercent = 100;
+
                 var card = {
                     jellyfin_item_id: String(it.Id),
                     card_type: (isSeries || isEpisode) ? 'tv' : 'movie',
                     source: (tmdb && !isEpisode) ? 'tmdb' : 'jellyfin',
                     id: (tmdb && !isEpisode) ? tmdb : String(it.Id),
-                    img: this.buildImageUrl(it.Id, 'primary') || (it.SeriesId ? this.buildImageUrl(it.SeriesId, 'primary') : ''),
+                    img: isEpisode ? (this.buildImageUrl(it.SeriesId || it.Id, 'primary') || this.buildImageUrl(it.SeriesId || it.Id, 'backdrop')) : (this.buildImageUrl(it.Id, 'primary') || this.buildImageUrl(it.Id, 'backdrop') || (it.SeriesId ? (this.buildImageUrl(it.SeriesId, 'primary') || this.buildImageUrl(it.SeriesId, 'backdrop')) : '')),
                     background_image: this.buildImageUrl(isEpisode ? (it.SeriesId || it.Id) : it.Id, 'backdrop')
                 };
 
@@ -951,8 +1292,7 @@
                     var seriesName = it.SeriesName || it.seriesName || 'Эпизод';
                     var seasonNo = it.ParentIndexNumber || it.SeasonNumber || '';
                     var epNo = it.IndexNumber || '';
-                    var epLabel = (seasonNo || epNo) ? (' \u2022 S' + (seasonNo || '?') + 'E' + (epNo || '?')) : '';
-                    card.name = seriesName + epLabel;
+                    card.name = seriesName;
                     card.original_name = seriesName;
                     card.episode_name = it.Name || '';
                     if (it.SeriesId) card.jellyfin_series_id = String(it.SeriesId);
@@ -964,6 +1304,56 @@
                     card.title = it.Name || '';
                     card.original_title = it.OriginalTitle || it.Name || '';
                     if (date && date.length >= 4) card.release_date = date;
+                }
+
+                var localSeries = null;
+                if (isSeries) {
+                    try { localSeries = this.getSeriesLastState(it.Id); } catch (eLS0) { localSeries = null; }
+                    try {
+                        if ((!resumePosSec || !resumeDurSec) && localSeries && localSeries.itemId) {
+                            var localEp = this.getLocalItemState(localSeries.itemId);
+                            if (localEp) {
+                                if (!resumePosSec && localEp.positionSec) resumePosSec = parseFloat(localEp.positionSec) || 0;
+                                if (!resumeDurSec && localEp.durationSec) resumeDurSec = parseFloat(localEp.durationSec) || 0;
+                            }
+                        }
+                    } catch (eLS1) {}
+                    if (!resumePercent && resumeDurSec > 0 && resumePosSec > 0) resumePercent = (resumePosSec / resumeDurSec) * 100;
+                    if (resumePercent < 0) resumePercent = 0;
+                    if (resumePercent > 100) resumePercent = 100;
+                }
+
+                var hasEpisodeState = false;
+                try { hasEpisodeState = !!(localSeries && (localSeries.seasonNumber || localSeries.episodeNumber)); } catch (eES0) { hasEpisodeState = false; }
+
+                if (resumeDurSec > 0 || resumePosSec > 0 || resumePercent > 0 || hasEpisodeState) {
+                    var epLabel2 = '';
+                    if (isEpisode) {
+                        var sNo = '';
+                        var eNo = '';
+                        try { sNo = String(it.ParentIndexNumber || it.SeasonNumber || ''); } catch (eE0) { sNo = ''; }
+                        try { eNo = String(it.IndexNumber || ''); } catch (eE1) { eNo = ''; }
+                        if (sNo || eNo) epLabel2 = 'S' + (sNo || '?') + 'E' + (eNo || '?');
+                    } else if (isSeries && hasEpisodeState) {
+                        var sNo2 = '';
+                        var eNo2 = '';
+                        try { sNo2 = String(localSeries.seasonNumber || ''); } catch (eSE0) { sNo2 = ''; }
+                        try { eNo2 = String(localSeries.episodeNumber || ''); } catch (eSE1) { eNo2 = ''; }
+                        if (sNo2 || eNo2) epLabel2 = 'S' + (sNo2 || '?') + 'E' + (eNo2 || '?');
+                    }
+
+                    var durStr = resumeDurSec > 0 ? this.formatSecondsShort(resumeDurSec) : '';
+                    var posStr = resumePosSec > 0 ? this.formatSecondsShort(resumePosSec) : '';
+                    var timeLabel = '';
+                    if (durStr && posStr) timeLabel = posStr + '/' + durStr;
+                    else timeLabel = durStr || posStr || '';
+
+                    card.jellyfin_resume = {
+                        hash: 'jf:' + String(it.Id),
+                        percent: resumePercent,
+                        episodeLabel: epLabel2,
+                        timeLabel: timeLabel
+                    };
                 }
 
                 try {
@@ -1152,7 +1542,7 @@
                     
                     // Для resume нужны дополнительные поля
                     if (mode === 'resume') {
-                        query.push('Fields=ProviderIds,PremiereDate,ProductionYear,CommunityRating,Type,UserData,SeriesId,SeriesName,ParentIndexNumber,IndexNumber');
+                        query.push('Fields=ProviderIds,PremiereDate,ProductionYear,CommunityRating,Type,UserData,SeriesId,SeriesName,ParentIndexNumber,IndexNumber,RunTimeTicks');
                     } else {
                         query.push('Fields=ProviderIds,PremiereDate,ProductionYear,CommunityRating,Type,ChildCount,RecursiveItemCount,ItemCount');
                     }
@@ -1198,6 +1588,10 @@
                             if (itemType === 'boxset' || itemType === 'playlist') c = this.boxsetToCard(it);
                             else c = this.jellyfinToCard(it);
                             if (!c) continue;
+                            if (mode === 'resume') {
+                                c.jellyfin_resume_line = true;
+                                if (itemType === 'series') c.jellyfin_resume_series_id = String(it.Id || '');
+                            }
                             cards.push(c);
                         }
 
@@ -1449,6 +1843,9 @@
                             results: data.cards || [],
                             total_pages: Math.max(1, Math.ceil((data.total || 0) / 20))
                         };
+                        if (def.mode === 'resume') {
+                            line.cardClass = function (item) { return new JellyfinResumeCard(item); };
+                        }
                         var hasBoxsets = false;
                         for (var bi = 0; bi < (line.results || []).length; bi++) {
                             if (line.results[bi] && line.results[bi].jellyfin_boxset_id) { hasBoxsets = true; break; }
@@ -1801,6 +2198,73 @@
                 title: 'Jellyfin',
                 search: searchJellyfin,
                 params: { save: true },
+                onSelect: function (ctx, done) {
+                    var card = null;
+                    try { card = ctx && (ctx.item_data || ctx.element) ? (ctx.item_data || ctx.element) : null; } catch (e0) { card = null; }
+                    if (!card) return;
+
+                    var title = '';
+                    try { title = String(card.title || card.name || card.original_name || card.original_title || '').trim(); } catch (e1) { title = ''; }
+                    if (!title) title = 'Jellyfin';
+
+                    var isFolder = false;
+                    try { isFolder = !!(card._isBoxset || card._isPlaylist || card.jellyfin_boxset_id); } catch (e2) { isFolder = false; }
+                    if (isFolder) {
+                        var parentId = '';
+                        try { parentId = String(card.jellyfin_boxset_id || card.jellyfin_id || card.id || ''); } catch (e3) { parentId = ''; }
+                        if (parentId) {
+                            try {
+                                Lampa.Activity.push({
+                                    url: 'jellyfin://browse?parentId=' + encodeURIComponent(parentId) + '&kind=media&title=' + encodeURIComponent(title),
+                                    title: title,
+                                    component: (Jellyfin._componentsRegistered ? 'jellyfin_browse' : 'category'),
+                                    page: 1
+                                });
+                            } catch (e4) {}
+                            return;
+                        }
+                    }
+
+                    var jfId = '';
+                    try { jfId = String(card.jellyfin_item_id || card.jellyfin_id || ''); } catch (e5) { jfId = ''; }
+                    if (!jfId) {
+                        try {
+                            var src = String(card.source || '');
+                            if (src === 'jellyfin') jfId = String(card.id || '');
+                        } catch (e6) { jfId = ''; }
+                    }
+                    if (!jfId) {
+                        try {
+                            var src2 = String(card.source || '');
+                            if (src2 === 'tmdb' && card.id) {
+                                var t = '';
+                                try { t = String(card.card_type || '').toLowerCase(); } catch (e7) { t = ''; }
+                                if (!t) t = (card.name || card.original_name) ? 'tv' : 'movie';
+                                jfId = String(Jellyfin.findJellyfinIdByTmdb(t, card.id) || '');
+                            }
+                        } catch (e8) { jfId = ''; }
+                    }
+
+                    if (jfId) {
+                        var stopNoty = Jellyfin.delayedNoty('Jellyfin: открываю...', 450);
+                        Jellyfin.authenticate(function () {
+                            Jellyfin.getItemDetails(jfId, function (full) {
+                                Jellyfin.openPlayMenu(full || { Id: jfId, Name: title }, function () {}, null, stopNoty);
+                            });
+                        });
+                        return;
+                    }
+
+                    try {
+                        Lampa.Activity.push({
+                            component: 'full',
+                            id: card.id,
+                            method: card.original_name ? 'tv' : 'movie',
+                            card: card,
+                            source: card.source
+                        });
+                    } catch (e9) {}
+                },
                 onRender: function (line) {
                     // Для лент с франшизами и коллекциями используем JellyfinFolderCard
                     var t = '';
@@ -2021,6 +2485,7 @@
                                 oncomplite({
                                     title: 'Jellyfin • Продолжить просмотр',
                                     results: data.cards,
+                                    cardClass: function (item) { return new JellyfinResumeCard(item); },
                                     page: page,
                                     total_pages: Math.max(1, Math.ceil((data.total || 0) / 20)),
                                     total_results: data.total || 0
@@ -2070,7 +2535,7 @@
                     try {
                         if (params && params.component === 'full' && params.source === 'jellyfin' && params.id) {
                             console.log('[Jellyfin] Activity.push intercepted:', params);
-                            var stopNoty = Jellyfin.delayedNoty('Jellyfin: открываю...', 450, 2000);
+                            var stopNoty = Jellyfin.delayedNoty('Jellyfin: открываю...', 450);
                             // Если это BoxSet (папка-франшиза) — открываем browse, не плеер
                             var card = params.movie || params.card || params.data || {};
                             console.log('[Jellyfin] Card data:', card);
@@ -2108,9 +2573,9 @@
                             };
                             Jellyfin.authenticate(function () {
                                 Jellyfin.getItemDetails(jfId, function (full) {
-                                    try { stopNoty(); } catch (e0) {}
                                     // Дополнительная проверка: если сервер вернул BoxSet — открываем browse
                                     if (full && String(full.Type || '').toLowerCase() === 'boxset') {
+                                        try { stopNoty(); } catch (e0) {}
                                         Lampa.Activity.push({
                                             url: 'jellyfin://browse?parentId=' + encodeURIComponent(jfId) + '&kind=media&title=' + encodeURIComponent(full.Name || ''),
                                             title: full.Name || '',
@@ -2119,7 +2584,11 @@
                                         });
                                         return;
                                     }
-                                    Jellyfin.openPlayMenu(full || { Id: jfId }, back);
+                                    // stopNoty передаётся внутрь как onReady — уведомление
+                                    // погаснет только когда реально покажется первая видимая
+                                    // панель (список сезонов / попап "продолжить" / начало
+                                    // воспроизведения), а не сразу после получения деталей.
+                                    Jellyfin.openPlayMenu(full || { Id: jfId }, back, null, stopNoty);
                                 });
                             });
                             return;
@@ -2651,7 +3120,7 @@
                 title: (item && item.Name ? item.Name : 'Jellyfin') + ' • Качество',
                 items: list,
                 onSelect: function (a) { callback(a && a.ms ? a.ms : null); },
-                onBack: onBack
+                onBack: this.wrapSelectOnBack(onBack)
             });
         },
 
@@ -2682,7 +3151,7 @@
                 title: 'Качество',
                 items: list,
                 onSelect: function (a) { callback(a && a.quality ? a.quality : this.QUALITY_PRESETS[0]); }.bind(this),
-                onBack: onBack
+                onBack: this.wrapSelectOnBack(onBack)
             });
         },
 
@@ -2710,7 +3179,7 @@
                 title: 'Аудио',
                 items: list,
                 onSelect: function (a) { callback(a && typeof a.audioIndex !== 'undefined' ? a.audioIndex : 0); },
-                onBack: onBack
+                onBack: this.wrapSelectOnBack(onBack)
             });
         },
 
@@ -2772,10 +3241,22 @@
             }.bind(this));
         },
 
-        openPlayMenu: function (item, onBack, opts) {
+        openPlayMenu: function (item, onBack, opts, onReady) {
             var ctx = opts && typeof opts === 'object' ? opts : {};
+            var readyFired = false;
+            // fireReady вызывается ровно один раз — непосредственно перед тем,
+            // как на экране реально появится первая видимая панель (список
+            // сезонов, попап "продолжить просмотр" или прямой старт
+            // воспроизведения). Именно в этот момент должно погаснуть
+            // уведомление "Jellyfin: открываю...", а не раньше.
+            var fireReady = function () {
+                if (readyFired) return;
+                readyFired = true;
+                try { if (typeof onReady === 'function') onReady(); } catch (eR) {}
+            };
             this.ensureItemDetails(item, function (full) {
                 if (!full || !full.Id) {
+                    fireReady();
                     if (onBack) onBack();
                     return;
                 }
@@ -2795,9 +3276,7 @@
                         try { localState = this.getLocalItemState(playItem && playItem.Id ? playItem.Id : ''); } catch (e00) { localState = null; }
 
                         var showAudioForSource = function (ms, backH) {
-                            this.selectAudioStreamIndex(playItem, ms, function (audioIndex) {
-                                this.playWithOptions(playItem, ms, audioIndex, resumeSeconds || 0);
-                            }.bind(this), backH);
+                            this.playWithOptions(playItem, ms, null, resumeSeconds || 0);
                         }.bind(this);
 
                         if (sources && sources.length > 1) {
@@ -2829,6 +3308,7 @@
                         var resumeSecEp = this.getResumeSecondsFromItem(full);
                         var durSecEp = this.getDurationSecondsFromItem(full);
                         var startAt = this.shouldOfferContinue(resumeSecEp, durSecEp) ? resumeSecEp : 0;
+                        fireReady();
                         playFlow(full, startAt, back, { forceSelect: true });
                         return;
                     }
@@ -2873,10 +3353,12 @@
                                 };
 
                                 if (!seasons.length) {
+                                    fireReady();
                                     back();
                                     return;
                                 }
 
+                                fireReady();
                                 Lampa.Select.show(seasonsConfig);
                             }.bind(this));
                         }.bind(this);
@@ -2898,6 +3380,7 @@
 
                             var openSeriesContinue = function (imgUrl) {
                                 var img = imgUrl || fallbackImg;
+                                fireReady();
                                 if (!ctx.skipContinuePopup && this.shouldOfferContinue(resumeSec, durSec)) {
                                     this.openContinuePopup({
                                         title: 'Продолжить просмотр?',
@@ -2937,6 +3420,7 @@
                                     if (resumeSec) info.push(this.formatSecondsShort(resumeSec));
                                     var img = this.buildImageUrl(epFull.Id, 'primary') || this.buildImageUrl(seriesId, 'backdrop') || this.buildImageUrl(seriesId, 'primary');
 
+                                    fireReady();
                                     if (!ctx.skipContinuePopup && this.shouldOfferContinue(resumeSec, durSec)) {
                                         this.openContinuePopup({
                                             title: 'Продолжить просмотр?',
@@ -2964,6 +3448,7 @@
                     var percentItem = durSecItem ? ((resumeSecItem / durSecItem) * 100) : 0;
                     var imgItem = this.buildImageUrl(full.Id, 'backdrop') || this.buildImageUrl(full.Id, 'primary');
 
+                    fireReady();
                     if (!ctx.skipContinuePopup && this.shouldOfferContinue(resumeSecItem, durSecItem)) {
                         this.openContinuePopup({
                             title: 'Продолжить просмотр?',
@@ -2999,7 +3484,7 @@
         Lampa.Select.show({
             title: 'Jellyfin',
             items: list,
-            onBack: onBack,
+            onBack: Jellyfin.wrapSelectOnBack(onBack),
             onSelect: function (a) {
                 if (!a.item) {
                     if (onBack) onBack();
@@ -3037,11 +3522,10 @@
                 }
 
                 if (jfId) {
-                    var stopNoty = Jellyfin.delayedNoty('Jellyfin: открываю...', 450, 2000);
+                    var stopNoty = Jellyfin.delayedNoty('Jellyfin: открываю...', 450);
                     Jellyfin.authenticate(function () {
                         Jellyfin.getItemDetails(jfId, function (full) {
-                            try { stopNoty(); } catch (e0) {}
-                            Jellyfin.openPlayMenu(full || { Id: jfId, Name: movie.title || movie.name || 'Jellyfin' }, restore);
+                            Jellyfin.openPlayMenu(full || { Id: jfId, Name: movie.title || movie.name || 'Jellyfin' }, restore, null, stopNoty);
                         });
                     });
                     return;
@@ -3049,8 +3533,9 @@
 
                 var title = movie.title || movie.name;
                 var year = (movie.release_date || movie.first_air_date || '').split('-')[0];
-                Lampa.Noty.show('Jellyfin: Поиск...');
+                var stopSearchNoty = Jellyfin.delayedNoty('Jellyfin: Поиск...', 0);
                 Jellyfin.search(title, year, function (items) {
+                    try { stopSearchNoty(); } catch (e0) {}
                     showSelection(items, restore);
                 });
             });
@@ -3153,6 +3638,211 @@
         };
 
         this.destroy = function () {
+            if (this.img_el) { this.img_el.onload = null; this.img_el.onerror = null; this.img_el.src = ''; }
+            if (this.item && this.item.remove) this.item.remove();
+            this.item = null;
+        };
+
+        this.render = function (js) { return js ? this.item : $(this.item); };
+    }
+
+    function JellyfinResumeCard(data) {
+        this.data = data;
+
+        function findEl(root, selector) {
+            try {
+                var found = root && root.find ? root.find(selector) : null;
+                if (found && found[0]) return found[0];
+                if (found && found.nodeType === 1) return found;
+            } catch (e0) {}
+            return null;
+        }
+
+        this._updateTexts = function () {
+            try {
+                var title = '';
+                var sub = '';
+
+                try { title = String(data.title || data.name || data.original_title || data.original_name || '').trim(); } catch (eT0) { title = ''; }
+
+                if (data && data.episode_name) {
+                    var label = '';
+                    try { label = data && data.jellyfin_resume && data.jellyfin_resume.episodeLabel ? String(data.jellyfin_resume.episodeLabel) : ''; } catch (eL0) { label = ''; }
+                    var epName = '';
+                    try { epName = String(data.episode_name || '').trim(); } catch (eEN0) { epName = ''; }
+                    if (label && epName) sub = label + ' - ' + epName;
+                    else sub = label || epName || '';
+                } else {
+                    var year = '';
+                    try { year = String((data.release_date || data.first_air_date || '')).slice(0, 4); } catch (eY0) { year = ''; }
+                    sub = year || '';
+                }
+
+                if (this.title_el) this.title_el.textContent = title || '';
+                if (this.sub_el) {
+                    this.sub_el.textContent = sub || '';
+                    this.sub_el.style.display = sub ? '' : 'none';
+                }
+            } catch (e0) {}
+        };
+
+        this._updateProgress = function () {
+            try {
+                var pct = 0;
+                try { pct = data && data.jellyfin_resume ? parseFloat(data.jellyfin_resume.percent) || 0 : 0; } catch (eP0) { pct = 0; }
+                pct = Math.max(0, Math.min(100, pct));
+                if (this.bar_fill_el) this.bar_fill_el.style.width = pct + '%';
+
+                var timeLabel = '';
+                try { timeLabel = data && data.jellyfin_resume && data.jellyfin_resume.timeLabel ? String(data.jellyfin_resume.timeLabel) : ''; } catch (eTL0) { timeLabel = ''; }
+                if (this.time_el) {
+                    this.time_el.textContent = timeLabel || '';
+                    this.time_el.style.display = timeLabel ? '' : 'none';
+                }
+            } catch (e0) {}
+        };
+
+        this._ensureSeriesEpisodeInfo = function () {
+            try {
+                if (!data || data.episode_name) return;
+                var cardType = '';
+                try { cardType = String(data.card_type || '').toLowerCase(); } catch (eCT0) { cardType = ''; }
+                if (cardType !== 'tv') return;
+                if (data._jf_resume_series_loaded) return;
+                data._jf_resume_series_loaded = true;
+
+                var seriesId = '';
+                try { seriesId = String(data.jellyfin_item_id || data.jellyfin_id || ''); } catch (eSI0) { seriesId = ''; }
+                if (!seriesId) return;
+
+                Jellyfin.getSeriesResume(seriesId, function (resumeEpisode) {
+                    if (!resumeEpisode || !resumeEpisode.Id) return;
+
+                    var sNo = '';
+                    var eNo = '';
+                    try { sNo = resumeEpisode.ParentIndexNumber ? String(resumeEpisode.ParentIndexNumber) : ''; } catch (eS0) { sNo = ''; }
+                    try { eNo = resumeEpisode.IndexNumber ? String(resumeEpisode.IndexNumber) : ''; } catch (eE0) { eNo = ''; }
+                    var epLabel = (sNo || eNo) ? ('S' + (sNo || '?') + 'E' + (eNo || '?')) : '';
+
+                    var resumeSec = 0;
+                    var durSec = 0;
+                    try { resumeSec = Jellyfin.getResumeSecondsFromItem(resumeEpisode); } catch (eRS0) { resumeSec = 0; }
+                    try { durSec = Jellyfin.getDurationSecondsFromItem(resumeEpisode); } catch (eDS0) { durSec = 0; }
+                    var pct = 0;
+                    try { pct = durSec ? ((resumeSec / durSec) * 100) : 0; } catch (eP0) { pct = 0; }
+                    pct = Math.max(0, Math.min(100, pct));
+
+                    var durStr = durSec > 0 ? Jellyfin.formatSecondsShort(durSec) : '';
+                    var posStr = resumeSec > 0 ? Jellyfin.formatSecondsShort(resumeSec) : '';
+                    var timeLabel = '';
+                    if (durStr && posStr) timeLabel = posStr + '/' + durStr;
+                    else timeLabel = durStr || posStr || '';
+
+                    var epName = '';
+                    try { epName = String(resumeEpisode.Name || '').trim(); } catch (eEN0) { epName = ''; }
+
+                    data.jellyfin_resume = data.jellyfin_resume || {};
+                    if (epLabel) data.jellyfin_resume.episodeLabel = epLabel;
+                    if (timeLabel) data.jellyfin_resume.timeLabel = timeLabel;
+                    if (pct) data.jellyfin_resume.percent = pct;
+
+                    var sub = '';
+                    if (epLabel && epName) sub = epLabel + ' - ' + epName;
+                    else sub = epLabel || epName || '';
+
+                    try {
+                        if (Jellyfin._resumeCardRefs && Jellyfin._resumeCardRefs[seriesId]) {
+                            var ref = Jellyfin._resumeCardRefs[seriesId];
+                            if (ref && ref.sub_el) {
+                                ref.sub_el.textContent = sub;
+                                ref.sub_el.style.display = sub ? '' : 'none';
+                            }
+                            if (ref && ref.bar_fill_el) ref.bar_fill_el.style.width = (pct || 0) + '%';
+                            if (ref && ref.time_el) {
+                                ref.time_el.textContent = timeLabel || '';
+                                ref.time_el.style.display = timeLabel ? '' : 'none';
+                            }
+                        }
+                    } catch (eU0) {}
+                }, function () {});
+            } catch (e0) {}
+        };
+
+        this.build = function () {
+            this.item = Lampa.Template.js('jellyfin_resume_card');
+            if (!this.item) return;
+
+            this.item_dom = this.item[0] ? this.item[0] : (this.item.nodeType === 1 ? this.item : null);
+            this.img_el = findEl(this.item, '.jf-resume-card__img');
+            this.title_el = findEl(this.item, '.jf-resume-card__title');
+            this.sub_el = findEl(this.item, '.jf-resume-card__sub');
+            this.bar_fill_el = findEl(this.item, '.jf-resume-card__barfill');
+            this.time_el = findEl(this.item, '.jf-resume-card__time');
+
+            this._updateTexts();
+            this._updateProgress();
+
+            if (this.item.addEventListener) this.item.addEventListener('visible', this.visible.bind(this));
+        };
+
+        this.image = function () {
+            var self = this;
+            if (this.img_el) {
+                this.img_el.onload = function () { try { if (self.item_dom) self.item_dom.classList.add('card--loaded'); } catch (e) {} };
+                this.img_el.onerror = function () { try { self.img_el.src = './img/img_load.svg'; } catch (e) {} };
+            }
+        };
+
+        this.visible = function () {
+            try {
+                var img = '';
+                try { img = String(data.background_image || data.img_backdrop || data.img || ''); } catch (e0) { img = ''; }
+                if (this.img_el) this.img_el.src = img || './img/img_load.svg';
+            } catch (e1) {}
+            if (this.onVisible) this.onVisible(this.item, data);
+        };
+
+        this.create = function () {
+            var self = this;
+            this.build();
+            if (!this.item) return;
+
+            var key = '';
+            try { key = String(data.jellyfin_item_id || data.jellyfin_id || ''); } catch (e0) { key = ''; }
+            if (key) {
+                if (!Jellyfin._resumeCardRefs) Jellyfin._resumeCardRefs = {};
+                Jellyfin._resumeCardRefs[key] = { sub_el: this.sub_el, bar_fill_el: this.bar_fill_el, time_el: this.time_el };
+            }
+
+            this.item.addEventListener('hover:focus', function () {
+                self._updateTexts();
+                self._updateProgress();
+                self._ensureSeriesEpisodeInfo();
+                if (self.onFocus) self.onFocus(self.item, data);
+            });
+            this.item.addEventListener('hover:hover', function () { if (self.onHover) self.onHover(self.item, data); });
+            this.item.addEventListener('hover:touch', function () { if (self.onTouch) self.onTouch(self.item, data); });
+            this.item.addEventListener('hover:enter', function () {
+                var jfId = '';
+                try { jfId = String(data.jellyfin_item_id || data.jellyfin_id || data.id || ''); } catch (e0) { jfId = ''; }
+                if (!jfId) return;
+                var stopNoty = Jellyfin.delayedNoty('Jellyfin: открываю...', 450);
+                Jellyfin.authenticate(function () {
+                    Jellyfin.getItemDetails(jfId, function (full) {
+                        Jellyfin.openPlayMenu(full || { Id: jfId }, null, null, stopNoty);
+                    });
+                });
+            });
+
+            this.image();
+        };
+
+        this.destroy = function () {
+            try {
+                var key = '';
+                try { key = String(data.jellyfin_item_id || data.jellyfin_id || ''); } catch (e0) { key = ''; }
+                if (key && Jellyfin._resumeCardRefs) delete Jellyfin._resumeCardRefs[key];
+            } catch (e1) {}
             if (this.img_el) { this.img_el.onload = null; this.img_el.onerror = null; this.img_el.src = ''; }
             if (this.item && this.item.remove) this.item.remove();
             this.item = null;
@@ -3269,6 +3959,17 @@
                 '<div class="card__title" style="display:none"></div>' +
             '</div>');
 
+        Lampa.Template.add('jellyfin_resume_card',
+            '<div class="card selector layer--visible layer--render jf-resume-card">' +
+                '<div class="card__view">' +
+                    '<img src="./img/img_load.svg" class="card__img jf-resume-card__img">' +
+                    '<div class="jf-resume-card__time"></div>' +
+                    '<div class="jf-resume-card__bar"><div class="jf-resume-card__barfill"></div></div>' +
+                '</div>' +
+                '<div class="jf-resume-card__title"></div>' +
+                '<div class="jf-resume-card__sub"></div>' +
+            '</div>');
+
         // Горизонтальная карточка для франшиз (16:9)
         Lampa.Template.add('jellyfin_folder_card',
             '<div class="card selector layer--visible layer--render card--collection jf-folder-card jf-folder-card--horizontal">' +
@@ -3298,6 +3999,17 @@
             '.jf-lib-card__gradient{position:absolute;left:0;right:0;bottom:0;height:60%;background:linear-gradient(180deg,rgba(0,0,0,0) 0%,rgba(0,0,0,.75) 100%);pointer-events:none;border-radius:0 0 .8em .8em}' +
             '.jf-lib-card__title{position:absolute;left:0;right:0;bottom:0;padding:.7em 1em;color:#fff;font-size:1.15em;font-weight:600;text-shadow:0 1px 4px rgba(0,0,0,.6)}' +
             '.jf-lib-card>.card__title{max-height:0 !important;overflow:hidden !important;padding:0 !important;margin:0 !important;visibility:hidden !important}' +
+            '.jf-resume-card{-webkit-flex:0 0 31.5%;flex:0 0 31.5%;width:31.5%;min-width:31.5%;max-width:31.5%;margin-right:1.2%;position:relative}' +
+            '.jf-resume-card .card__view{padding-bottom:56.2% !important;border-radius:.8em !important;overflow:visible !important;position:relative;background-color:#2b2b2b}' +
+            '.jf-resume-card .card__view::after{content:\"\";position:absolute;top:0;left:0;right:0;bottom:0;border-radius:.8em;overflow:hidden;pointer-events:none}' +
+            '.jf-resume-card .jf-resume-card__img{width:100%;height:100%;position:absolute;top:0;left:0;object-fit:cover;opacity:0;transition:opacity .2s ease;border-radius:.8em !important}' +
+            '.jf-resume-card.card--loaded .jf-resume-card__img{opacity:1 !important}' +
+            '.jf-resume-card__title{margin-top:.55em;font-size:1.1em;font-weight:600;line-height:1.2;max-height:2.4em;overflow:hidden}' +
+            '.jf-resume-card__sub{margin-top:.25em;font-size:.95em;opacity:.75;line-height:1.25;max-height:2.5em;overflow:hidden}' +
+            '.jf-resume-card__bar{position:absolute;left:.8em;right:.8em;bottom:.7em;height:.28em;border-radius:.28em;background:rgba(255,255,255,0.18);overflow:hidden;opacity:0;transition:opacity .15s ease;pointer-events:none}' +
+            '.jf-resume-card__barfill{height:100%;width:0%;background:#fff}' +
+            '.jf-resume-card__time{position:absolute;left:.8em;bottom:1.05em;font-size:.95em;font-weight:700;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.8);opacity:0;transition:opacity .15s ease;pointer-events:none}' +
+            '.jf-resume-card.focus .jf-resume-card__bar,.jf-resume-card.focus .jf-resume-card__time{opacity:1}' +
             // Горизонтальные карточки франшиз (16:9) - фикс для фокусной рамки
             '.jf-folder-card--horizontal{position:relative}' +
             '.jf-folder-card--horizontal .card__view{padding-bottom:100% !important;position:relative;border-radius:.8em !important;overflow:visible !important;background-color:#2b2b2b}' +
@@ -3318,6 +4030,7 @@
             // Адаптив для мобильных устройств
             '@media screen and (max-width:480px){' +
                 '.jf-lib-card{-webkit-flex:0 0 98% !important;flex:0 0 98% !important;width:98% !important;min-width:98% !important;max-width:98% !important}' +
+                '.jf-resume-card{-webkit-flex:0 0 98% !important;flex:0 0 98% !important;width:98% !important;min-width:98% !important;max-width:98% !important}' +
                 '.jf-folder-card--horizontal{-webkit-flex:0 0 48% !important;flex:0 0 48% !important;width:48% !important;min-width:48% !important;max-width:48% !important}' +
                 '.jf-folder-card--vertical{-webkit-flex:0 0 31% !important;flex:0 0 31% !important;width:31% !important;min-width:31% !important;max-width:31% !important}' +
             '}';
@@ -3512,6 +4225,7 @@
 
         Jellyfin.patchApi();
         Jellyfin.registerSearch();
+        Jellyfin.enhanceResumeCards();
 
         Lampa.Listener.follow('menu', function (e) {
             try {
