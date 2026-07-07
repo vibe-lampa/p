@@ -234,17 +234,25 @@
                 if (!server || !itemId) return '';
 
                 var path = '';
-                if (type === 'backdrop') path = '/Items/' + encodeURIComponent(itemId) + '/Images/Backdrop/0';
-                else if (type === 'thumb') path = '/Items/' + encodeURIComponent(itemId) + '/Images/Thumb';
-                else if (type === 'logo') path = '/Items/' + encodeURIComponent(itemId) + '/Images/Logo';
-                else path = '/Items/' + encodeURIComponent(itemId) + '/Images/Primary';
+                var params = '';
+                
+                if (type === 'thumb') {
+                    // Thumb для resume-карточек
+                    path = '/Items/' + encodeURIComponent(itemId) + '/Images/Thumb';
+                    params = 'fillHeight=320&fillWidth=213&quality=90';
+                } else if (type === 'backdrop') {
+                    path = '/Items/' + encodeURIComponent(itemId) + '/Images/Backdrop/0';
+                    params = 'maxWidth=1280&quality=90';
+                } else if (type === 'logo') {
+                    path = '/Items/' + encodeURIComponent(itemId) + '/Images/Logo';
+                    params = 'maxWidth=600&quality=90';
+                } else {
+                    // Primary по умолчанию
+                    path = '/Items/' + encodeURIComponent(itemId) + '/Images/Primary';
+                    params = 'maxWidth=420&quality=90';
+                }
 
-                var maxW = '420';
-                if (type === 'backdrop') maxW = '1280';
-                else if (type === 'thumb') maxW = '1280';
-                else if (type === 'logo') maxW = '600';
-
-                var url = server + path + '?maxWidth=' + maxW + '&quality=90';
+                var url = server + path + '?' + params;
                 if (token) url += '&api_key=' + encodeURIComponent(token);
                 return url;
             } catch (e0) {
@@ -458,13 +466,24 @@
             try {
                 if (!document.getElementById('jf-resume-cards-style')) {
                     $('body').append('<style id="jf-resume-cards-style">' +
-                        '.jf-resume__meta{position:absolute;left:.45em;right:.45em;bottom:1.05em;background:rgba(0,0,0,.55);color:#fff;font-size:.9em;padding:.25em .6em;border-radius:1em;z-index:2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2;pointer-events:none;opacity:0;transition:opacity .15s ease}' +
-                        '.jf-resume__line{position:absolute;left:.45em;right:.45em;bottom:.45em;margin:0;z-index:2;background:rgba(0,0,0,.35);pointer-events:none;opacity:0;transition:opacity .15s ease}' +
-                        '.jf-resume__line>div{background:#fff}' +
+                        // Текст вверху слева с полупрозрачной подложкой и размытием
+                        '.jf-resume__meta{position:absolute;top:.5em;left:.5em;right:.5em;color:#fff;font-size:1em;font-weight:700;padding:.4em .7em;border-radius:.4em;z-index:3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.4;pointer-events:none;opacity:0;transition:opacity .2s ease;background:rgba(0,0,0,.75);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 2px 12px rgba(0,0,0,.6);text-shadow:0 1px 3px rgba(0,0,0,.8)}' +
+                        // Прогресс-бар снизу на всю ширину, яркий градиент
+                        '.jf-resume__line{position:absolute;left:0;right:0;bottom:0;height:.5em;margin:0;z-index:2;background:rgba(0,0,0,.4);pointer-events:none;opacity:0;transition:opacity .2s ease;overflow:hidden}' +
+                        '.jf-resume__line>div{background:linear-gradient(90deg,#AA5CC3 0%,#8B68CC 25%,#6B89DD 50%,#4BA4E8 75%,#00A4DC 100%);height:100%;box-shadow:0 -2px 16px rgba(170,92,195,.8),0 0 20px rgba(0,164,220,.6);transition:width .3s ease;position:relative}' +
+                        '.jf-resume__line>div::after{content:"";position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,.3) 50%,transparent 100%);animation:jf-shine 2s ease-in-out infinite}' +
+                        '@keyframes jf-shine{0%,100%{transform:translateX(-100%)}50%{transform:translateX(100%)}}' +
                         '.card.jf-resume--ready .card-watched{display:none!important}' +
                         '.card.jf-resume--ready .card__vote{z-index:5}' +
-                        '.card.jf-resume--has-vote .jf-resume__meta,.card.jf-resume--has-vote .jf-resume__line{right:3.6em}' +
+                        '.card.jf-resume--has-vote .jf-resume__meta{right:3.6em}' +
                         '.card.focus .jf-resume__meta,.card.focus .jf-resume__line{opacity:1}' +
+                        // ВАЖНО: НЕ ставим overflow:hidden на .card__view - это обрежет фокусную рамку карточки.
+                        // Вместо этого заводим отдельную обёртку-клипер (.jf-resume__clip), которая по размеру
+                        // ровно совпадает с картинкой карточки и имеет тот же радиус скругления + overflow:hidden.
+                        // Она не является .card__view, поэтому фокусную рамку не трогает, а бар внутри неё
+                        // всегда обрезается точно по границе картинки, даже в углах.
+                        '.jf-resume__clip{position:absolute;overflow:hidden;pointer-events:none;z-index:2}' +
+                        '.jf-resume__clip .jf-resume__line{z-index:auto}' +
                         '</style>');
                 }
             } catch (e0) {}
@@ -510,10 +529,114 @@
                     var tl = document.createElement('div');
                     tl.className = 'time-line jf-resume__line';
                     tl.setAttribute('data-hash', String(meta.hash || ('jf:' + (data.jellyfin_item_id || data.jellyfin_id || data.id || ''))));
+
                     var inner = document.createElement('div');
                     inner.style.width = percent + '%';
                     tl.appendChild(inner);
-                    view.appendChild(tl);
+
+                    // Клипер: отдельный слой того же размера, что и картинка карточки, со своим
+                    // overflow:hidden и радиусом скругления, взятым с реального элемента (картинки/
+                    // view/карточки). card__view при этом остаётся с overflow:visible, поэтому
+                    // фокусная рамка карточки не обрезается, а сам бар всегда идеально вписан
+                    // в границы картинки, включая скруглённые нижние углы.
+                    var clip = document.createElement('div');
+                    clip.className = 'jf-resume__clip';
+
+                    var radius = '';
+                    var imgEl = view.querySelector('.card__img') || view.querySelector('img');
+                    try {
+                        var pickRadius = function (el) {
+                            if (!el) return '';
+                            var cs = window.getComputedStyle(el);
+                            var candidates = [cs.borderBottomLeftRadius, cs.borderRadius];
+                            for (var i = 0; i < candidates.length; i++) {
+                                var v = candidates[i];
+                                if (!v) continue;
+                                var m = String(v).match(/[\d.]+[a-z%]*/);
+                                if (m && parseFloat(m[0]) > 0) return m[0];
+                            }
+                            return '';
+                        };
+                        radius = pickRadius(imgEl) || pickRadius(view) || pickRadius(cardEl);
+                    } catch (eRad0) {}
+                    if (!radius) radius = '.8em';
+                    clip.style.borderRadius = radius;
+
+                    // Подгоняем клипер строго под реальные границы картинки внутри view (а не просто
+                    // на всю view), т.к. в некоторых скинах у картинки есть свой отступ снизу/сверху.
+                    //
+                    // ВАЖНО: раньше здесь использовался getBoundingClientRect() с последующей
+                    // компенсацией через scaleX/scaleY = offsetWidth/rect.width. Это давало щель в
+                    // 1px, потому что offsetWidth/Height - всегда целые числа, а rect.width/height -
+                    // дробные (плюс уже включают активный transform:scale фокуса), и деление одного
+                    // на другое накапливало субпиксельную ошибку округления именно на нижнем крае.
+                    //
+                    // Вместо этого используем offsetTop/Left/Width/Height. Эти величины НЕ зависят от
+                    // CSS transform (в отличие от getBoundingClientRect) - transform:scale фокуса меняет
+                    // только визуальный рендер, а не "дораскладочные" offset-координаты. Поскольку и
+                    // imgEl, и view измеряются одним и тем же (недробным) алгоритмом браузера, их
+                    // разница получается точной, без смешивания целых и дробных величин.
+                    var syncClipBox = function () {
+                        try {
+                            if (!imgEl) throw 0;
+
+                            var top = imgEl.offsetTop;
+                            var left = imgEl.offsetLeft;
+                            var width = imgEl.offsetWidth;
+                            var height = imgEl.offsetHeight;
+
+                            // Если между картинкой и view есть промежуточная обёртка (offsetParent
+                            // картинки - не сам view), суммируем смещения вверх по цепочке до view.
+                            var node = imgEl.offsetParent;
+                            var guard = 0;
+                            while (node && node !== view && guard < 10) {
+                                top += node.offsetTop;
+                                left += node.offsetLeft;
+                                node = node.offsetParent;
+                                guard++;
+                            }
+                            if (node !== view) throw 0;
+
+                            // clientTop/Left = толщина рамки view - абсолютно позиционированные дети
+                            // отсчитываются от внутреннего (padding) края view, поэтому вычитаем её.
+                            top -= view.clientTop;
+                            left -= view.clientLeft;
+
+                            if (!(width > 0) || !(height > 0)) throw 0;
+
+                            // Небольшой нахлёст (оверскан) только по нижнему краю: подстраховка на
+                            // случай остаточного суб-пиксельного расхождения на слабых движках
+                            // (старый WebKit смарт-ТВ). .jf-resume__clip сам имеет overflow:hidden и
+                            // тот же радиус скругления, что и картинка, поэтому лишний пиксель снизу
+                            // не выходит за пределы карточки и визуально не заметен - он просто
+                            // гарантирует, что бар всегда доходит вплотную до нижнего края картинки.
+                            var overscanBottom = 1;
+
+                            clip.style.right = '';
+                            clip.style.bottom = '';
+                            clip.style.top = top + 'px';
+                            clip.style.left = left + 'px';
+                            clip.style.width = width + 'px';
+                            clip.style.height = (height + overscanBottom) + 'px';
+                        } catch (eSync0) {
+                            clip.style.width = '';
+                            clip.style.height = '';
+                            clip.style.top = '0';
+                            clip.style.left = '0';
+                            clip.style.right = '0';
+                            clip.style.bottom = '0';
+                        }
+                    };
+                    syncClipBox();
+
+                    clip.appendChild(tl);
+                    view.appendChild(clip);
+
+                    // На случай ресайза/поворота экрана - пересчитываем размеры и позицию клипера.
+                    try {
+                        window.addEventListener('resize', syncClipBox);
+                        window.addEventListener('orientationchange', syncClipBox);
+                    } catch (eRes0) {}
 
                     var ensureSeriesMeta = function () {
                         try {
@@ -1256,11 +1379,15 @@
             return out;
         },
 
-        jellyfinToCard: function (it) {
+        jellyfinToCard: function (it, opts) {
             try {
                 if (!it || !it.Id) return null;
+                var options = opts && typeof opts === 'object' ? opts : {};
+                var forceJellyfinSource = options.forceJellyfinSource || false;
+                
                 var providers = it.ProviderIds || it.Providerids || {};
-                var tmdb = providers && (providers.Tmdb || providers.tmdb || providers.TMDb || '');
+                // Для resume-ленты полностью игнорируем TMDB ID
+                var tmdb = forceJellyfinSource ? '' : (providers && (providers.Tmdb || providers.tmdb || providers.TMDb || ''));
                 tmdb = tmdb ? String(tmdb) : '';
 
                 var type = String(it.Type || '').toLowerCase();
@@ -1279,12 +1406,32 @@
                 if (resumePercent < 0) resumePercent = 0;
                 if (resumePercent > 100) resumePercent = 100;
 
+                // Для resume-ленты используем thumb (как на сервере), с fallback на primary/backdrop
+                var imgUrl = '';
+                if (forceJellyfinSource) {
+                    // Для resume-карточек
+                    if (isEpisode && it.SeriesId) {
+                        // Для эпизодов в resume берем thumb серии, потом primary серии
+                        imgUrl = this.buildImageUrl(it.SeriesId, 'thumb') || this.buildImageUrl(it.SeriesId, 'primary') || this.buildImageUrl(it.SeriesId, 'backdrop');
+                    } else {
+                        // Для фильмов в resume - thumb, потом primary, потом backdrop
+                        imgUrl = this.buildImageUrl(it.Id, 'thumb') || this.buildImageUrl(it.Id, 'primary') || this.buildImageUrl(it.Id, 'backdrop');
+                    }
+                } else if (isEpisode) {
+                    imgUrl = this.buildImageUrl(it.SeriesId || it.Id, 'primary') || this.buildImageUrl(it.SeriesId || it.Id, 'backdrop');
+                } else {
+                    // Стандартная логика для всех карточек: primary, потом backdrop
+                    imgUrl = this.buildImageUrl(it.Id, 'primary') || this.buildImageUrl(it.Id, 'backdrop') || (it.SeriesId ? (this.buildImageUrl(it.SeriesId, 'primary') || this.buildImageUrl(it.SeriesId, 'backdrop')) : '');
+                }
+
                 var card = {
                     jellyfin_item_id: String(it.Id),
                     card_type: (isSeries || isEpisode) ? 'tv' : 'movie',
-                    source: (tmdb && !isEpisode) ? 'tmdb' : 'jellyfin',
-                    id: (tmdb && !isEpisode) ? tmdb : String(it.Id),
-                    img: isEpisode ? (this.buildImageUrl(it.SeriesId || it.Id, 'primary') || this.buildImageUrl(it.SeriesId || it.Id, 'backdrop')) : (this.buildImageUrl(it.Id, 'primary') || this.buildImageUrl(it.Id, 'backdrop') || (it.SeriesId ? (this.buildImageUrl(it.SeriesId, 'primary') || this.buildImageUrl(it.SeriesId, 'backdrop')) : '')),
+                    // Если forceJellyfinSource=true (для resume), всегда используем jellyfin source и Jellyfin ID
+                    source: (forceJellyfinSource || isEpisode) ? 'jellyfin' : ((tmdb && !isEpisode) ? 'tmdb' : 'jellyfin'),
+                    id: (forceJellyfinSource || isEpisode) ? String(it.Id) : ((tmdb && !isEpisode) ? tmdb : String(it.Id)),
+                    img: imgUrl,
+                    poster: forceJellyfinSource ? imgUrl : undefined,
                     background_image: this.buildImageUrl(isEpisode ? (it.SeriesId || it.Id) : it.Id, 'backdrop')
                 };
 
@@ -1586,7 +1733,7 @@
                             try { itemType = String(it.Type || it.type || '').toLowerCase(); } catch (eT0) { itemType = ''; }
                             var c;
                             if (itemType === 'boxset' || itemType === 'playlist') c = this.boxsetToCard(it);
-                            else c = this.jellyfinToCard(it);
+                            else c = this.jellyfinToCard(it, { forceJellyfinSource: mode === 'resume' });
                             if (!c) continue;
                             if (mode === 'resume') {
                                 c.jellyfin_resume_line = true;
@@ -3185,9 +3332,20 @@
 
         playWithOptions: function (item, mediaSource, audioIndex, startSeconds, quality) {
             this.authenticate(function () {
+                // Проверяем, что элемент подходит для воспроизведения
+                if (!item || !item.Id) {
+                    Lampa.Noty.show('Jellyfin: Неверные данные элемента');
+                    return;
+                }
+
                 var server = sget('jellyfin_server', JELLYFIN_SERVER).replace(/\/$/, '');
                 var msid = '';
                 try { msid = mediaSource && mediaSource.Id ? mediaSource.Id : (item && (item.MediaSourceId || (item.MediaSources && item.MediaSources[0] && item.MediaSources[0].Id) || '')); } catch (e0) { msid = ''; }
+
+                // Если нет mediaSource и нет MediaSources в item, попробуем получить через прямой stream endpoint
+                if (!msid && (!item.MediaSources || !item.MediaSources.length)) {
+                    console.log('Jellyfin: MediaSources отсутствует, пробуем прямое воспроизведение для', item.Id, item.Name);
+                }
 
                 var q = quality && typeof quality === 'object' ? quality : this.QUALITY_PRESETS[0];
                 var isDirect = !q.bitrate;
@@ -3381,7 +3539,8 @@
                             var openSeriesContinue = function (imgUrl) {
                                 var img = imgUrl || fallbackImg;
                                 fireReady();
-                                if (!ctx.skipContinuePopup && this.shouldOfferContinue(resumeSec, durSec)) {
+                                // ВСЕГДА показываем попап для сериалов, даже если нет resume
+                                if (!ctx.skipContinuePopup) {
                                     this.openContinuePopup({
                                         title: 'Продолжить просмотр?',
                                         name: String(full.Name || 'Jellyfin'),
@@ -3389,9 +3548,15 @@
                                         image: img,
                                         percent: percent,
                                         onContinue: function () {
-                                            this.getItemDetails(resumeEpisode.Id, function (epFull) {
-                                                playFlow(epFull || resumeEpisode, resumeSec, back, { forceSelect: false });
-                                            }.bind(this));
+                                            // Если есть resumeEpisode с данными - продолжаем его
+                                            if (resumeEpisode && resumeEpisode.Id) {
+                                                this.getItemDetails(resumeEpisode.Id, function (epFull) {
+                                                    playFlow(epFull || resumeEpisode, resumeSec, back, { forceSelect: false });
+                                                }.bind(this));
+                                            } else {
+                                                // Если нет данных - показываем список сезонов
+                                                proceedSeasons();
+                                            }
                                         }.bind(this),
                                         onChoose: function () { proceedSeasons(); }
                                     });
@@ -3408,6 +3573,7 @@
                                 openSeriesContinue('');
                             }
                         }.bind(this), function () {
+                            // Если getSeriesResume вернул ошибку, все равно показываем попап с локальными данными
                             if (localSeries && localSeries.itemId) {
                                 this.getItemDetails(localSeries.itemId, function (epFull) {
                                     if (!epFull || !epFull.Id) return proceedSeasons();
@@ -3421,7 +3587,7 @@
                                     var img = this.buildImageUrl(epFull.Id, 'primary') || this.buildImageUrl(seriesId, 'backdrop') || this.buildImageUrl(seriesId, 'primary');
 
                                     fireReady();
-                                    if (!ctx.skipContinuePopup && this.shouldOfferContinue(resumeSec, durSec)) {
+                                    if (!ctx.skipContinuePopup) {
                                         this.openContinuePopup({
                                             title: 'Продолжить просмотр?',
                                             name: String(full.Name || 'Jellyfin'),
@@ -3437,6 +3603,8 @@
                                 }.bind(this));
                                 return;
                             }
+                            // Если совсем нет данных - просто показываем список сезонов
+                            fireReady();
                             proceedSeasons();
                         }.bind(this));
 
@@ -3789,14 +3957,46 @@
             var self = this;
             if (this.img_el) {
                 this.img_el.onload = function () { try { if (self.item_dom) self.item_dom.classList.add('card--loaded'); } catch (e) {} };
-                this.img_el.onerror = function () { try { self.img_el.src = './img/img_load.svg'; } catch (e) {} };
+                this.img_el.onerror = function () { 
+                    try { 
+                        // Если thumb не загрузился, пробуем primary, потом backdrop
+                        var currentSrc = self.img_el.src || '';
+                        if (currentSrc.indexOf('/Images/Thumb') !== -1) {
+                            // Пробуем primary
+                            var itemId = '';
+                            try { itemId = String(data.jellyfin_item_id || data.jellyfin_id || data.id || ''); } catch (e0) { itemId = ''; }
+                            if (itemId) {
+                                var primaryUrl = Jellyfin.buildImageUrl(itemId, 'primary');
+                                if (primaryUrl && primaryUrl !== currentSrc) {
+                                    self.img_el.src = primaryUrl;
+                                    return;
+                                }
+                            }
+                        } else if (currentSrc.indexOf('/Images/Primary') !== -1) {
+                            // Пробуем backdrop
+                            var itemId2 = '';
+                            try { itemId2 = String(data.jellyfin_item_id || data.jellyfin_id || data.id || ''); } catch (e1) { itemId2 = ''; }
+                            if (itemId2) {
+                                var backdropUrl = Jellyfin.buildImageUrl(itemId2, 'backdrop');
+                                if (backdropUrl && backdropUrl !== currentSrc) {
+                                    self.img_el.src = backdropUrl;
+                                    return;
+                                }
+                            }
+                        }
+                        // Если ничего не помогло - заглушка
+                        self.img_el.src = './img/img_load.svg';
+                    } catch (e) { 
+                        self.img_el.src = './img/img_load.svg';
+                    } 
+                };
             }
         };
 
         this.visible = function () {
             try {
                 var img = '';
-                try { img = String(data.background_image || data.img_backdrop || data.img || ''); } catch (e0) { img = ''; }
+                try { img = String(data.img || data.img_backdrop || data.background_image || ''); } catch (e0) { img = ''; }
                 if (this.img_el) this.img_el.src = img || './img/img_load.svg';
             } catch (e1) {}
             if (this.onVisible) this.onVisible(this.item, data);
@@ -3829,6 +4029,17 @@
                 var stopNoty = Jellyfin.delayedNoty('Jellyfin: открываю...', 450);
                 Jellyfin.authenticate(function () {
                     Jellyfin.getItemDetails(jfId, function (full) {
+                        // Если это эпизод из ленты "Продолжить просмотр" и у нас есть серия,
+                        // открываем серию с попапом вместо прямого запуска эпизода
+                        var typeLower = '';
+                        try { typeLower = String(full.Type || '').toLowerCase(); } catch (eT0) { typeLower = ''; }
+                        if (typeLower === 'episode' && full.SeriesId) {
+                            // Открываем родительскую серию, чтобы показать попап с выбором
+                            Jellyfin.getItemDetails(full.SeriesId, function (seriesFull) {
+                                Jellyfin.openPlayMenu(seriesFull || { Id: full.SeriesId }, null, null, stopNoty);
+                            });
+                            return;
+                        }
                         Jellyfin.openPlayMenu(full || { Id: jfId }, null, null, stopNoty);
                     });
                 });
@@ -3964,7 +4175,7 @@
                 '<div class="card__view">' +
                     '<img src="./img/img_load.svg" class="card__img jf-resume-card__img">' +
                     '<div class="jf-resume-card__time"></div>' +
-                    '<div class="jf-resume-card__bar"><div class="jf-resume-card__barfill"></div></div>' +
+                    '<div class="jf-resume-card__barclip"><div class="jf-resume-card__bar"><div class="jf-resume-card__barfill"></div></div></div>' +
                 '</div>' +
                 '<div class="jf-resume-card__title"></div>' +
                 '<div class="jf-resume-card__sub"></div>' +
@@ -4000,16 +4211,27 @@
             '.jf-lib-card__title{position:absolute;left:0;right:0;bottom:0;padding:.7em 1em;color:#fff;font-size:1.15em;font-weight:600;text-shadow:0 1px 4px rgba(0,0,0,.6)}' +
             '.jf-lib-card>.card__title{max-height:0 !important;overflow:hidden !important;padding:0 !important;margin:0 !important;visibility:hidden !important}' +
             '.jf-resume-card{-webkit-flex:0 0 31.5%;flex:0 0 31.5%;width:31.5%;min-width:31.5%;max-width:31.5%;margin-right:1.2%;position:relative}' +
-            '.jf-resume-card .card__view{padding-bottom:56.2% !important;border-radius:.8em !important;overflow:visible !important;position:relative;background-color:#2b2b2b}' +
-            '.jf-resume-card .card__view::after{content:\"\";position:absolute;top:0;left:0;right:0;bottom:0;border-radius:.8em;overflow:hidden;pointer-events:none}' +
-            '.jf-resume-card .jf-resume-card__img{width:100%;height:100%;position:absolute;top:0;left:0;object-fit:cover;opacity:0;transition:opacity .2s ease;border-radius:.8em !important}' +
+            '.jf-resume-card .card__view{padding-bottom:56.2% !important;border-radius:.8em !important;overflow:hidden !important;position:relative;background-color:#2b2b2b}' +
+            '.jf-resume-card.focus .card__view{overflow:visible !important}' +
+            '.jf-resume-card .jf-resume-card__img{width:100%;height:100%;position:absolute;top:0;left:0;object-fit:cover;opacity:0;transition:opacity .2s ease;border-radius:inherit}' +
             '.jf-resume-card.card--loaded .jf-resume-card__img{opacity:1 !important}' +
             '.jf-resume-card__title{margin-top:.55em;font-size:1.1em;font-weight:600;line-height:1.2;max-height:2.4em;overflow:hidden}' +
             '.jf-resume-card__sub{margin-top:.25em;font-size:.95em;opacity:.75;line-height:1.25;max-height:2.5em;overflow:hidden}' +
-            '.jf-resume-card__bar{position:absolute;left:.8em;right:.8em;bottom:.7em;height:.28em;border-radius:.28em;background:rgba(255,255,255,0.18);overflow:hidden;opacity:0;transition:opacity .15s ease;pointer-events:none}' +
-            '.jf-resume-card__barfill{height:100%;width:0%;background:#fff}' +
-            '.jf-resume-card__time{position:absolute;left:.8em;bottom:1.05em;font-size:.95em;font-weight:700;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.8);opacity:0;transition:opacity .15s ease;pointer-events:none}' +
-            '.jf-resume-card.focus .jf-resume-card__bar,.jf-resume-card.focus .jf-resume-card__time{opacity:1}' +
+            // Раньше скругление нижних углов задавалось прямо на .jf-resume-card__bar - тонкой
+            // полоске высотой всего .45em. Но когда высота блока МЕНЬШЕ радиуса скругления, CSS
+            // обязан уменьшить радиус, чтобы он влез в блок (стандартный алгоритм border-radius) -
+            // поэтому даже при точно совпадающем (унаследованном) значении радиуса дуга на тонком
+            // баре получалась туже и меньше настоящей дуги картинки, и угол бара визуально "вылезал"
+            // за пределы кривой картинки. Решение - завести .jf-resume-card__barclip: невидимую
+            // обёртку РАЗМЕРОМ СО ВСЮ КАРТИНКУ (100% x 100%, а не .45em), с overflow:hidden и тем
+            // же унаследованным радиусом. На таком большом блоке радиус никогда не сжимается, и он
+            // аккуратно обрезает тонкий бар внутри себя ровно по той же дуге, что и картинка - независимо
+            // от overflow у .card__view (который в фокусе становится visible).
+            '.jf-resume-card__barclip{position:absolute;top:0;left:0;right:0;bottom:0;overflow:hidden;pointer-events:none;opacity:0;transition:opacity .2s ease;border-radius:inherit}' +
+            '.jf-resume-card__bar{position:absolute;left:0;right:0;bottom:0;height:.45em;background:rgba(0,0,0,.5);pointer-events:none}' +
+            '.jf-resume-card__barfill{height:100%;width:0%;background:linear-gradient(90deg,#AA5CC3 0%,#8B68CC 25%,#6B89DD 50%,#4BA4E8 75%,#00A4DC 100%);transition:width .3s ease}' +
+            '.jf-resume-card__time{display:none !important}' +
+            '.jf-resume-card.focus .jf-resume-card__barclip,.jf-resume-card.focus .jf-resume-card__time{opacity:1}' +
             // Горизонтальные карточки франшиз (16:9) - фикс для фокусной рамки
             '.jf-folder-card--horizontal{position:relative}' +
             '.jf-folder-card--horizontal .card__view{padding-bottom:100% !important;position:relative;border-radius:.8em !important;overflow:visible !important;background-color:#2b2b2b}' +
@@ -4027,12 +4249,26 @@
             '.jf-folder-card--vertical .jf-folder-card__badge{position:absolute;top:.5em;right:.5em;min-width:1.9em;height:1.9em;padding:0 .5em;border-radius:1em;background:#2f9bf0;color:#fff;font-size:.9em;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.5);z-index:5}' +
             '.jf-folder-card--vertical .card__title{margin-top:.5em;text-align:center}' +
             'body.size--bigger .jf-lib-card{-webkit-flex-basis:31.5%;flex-basis:31.5%}' +
-            // Адаптив для мобильных устройств
-            '@media screen and (max-width:480px){' +
-                '.jf-lib-card{-webkit-flex:0 0 98% !important;flex:0 0 98% !important;width:98% !important;min-width:98% !important;max-width:98% !important}' +
-                '.jf-resume-card{-webkit-flex:0 0 98% !important;flex:0 0 98% !important;width:98% !important;min-width:98% !important;max-width:98% !important}' +
+            // Адаптив для мобильных устройств.
+            // Раньше переключение шло по "max-width:480px" - это ненадёжно, т.к. CSS-ширина
+            // экрана телефона в портретной ориентации у многих устройств больше 480px, и правило
+            // просто не срабатывало. В итоге широкие (16:9) карточки продолжали идти по 3 в ряд
+            // и в портрете, и в ландшафте - а поскольку в портрете весь ряд физически уже, те же
+            // 3 карточки выглядели гораздо мельче. Теперь переключаемся по ориентации экрана:
+            // в портрете широкие карточки идут по 2 в ряд (48%), а не по 3 (31.5%), и остаются
+            // крупными независимо от точной ширины устройства в px.
+            '@media screen and (orientation:portrait){' +
+                '.jf-lib-card{-webkit-flex:0 0 48% !important;flex:0 0 48% !important;width:48% !important;min-width:48% !important;max-width:48% !important}' +
+                '.jf-resume-card{-webkit-flex:0 0 48% !important;flex:0 0 48% !important;width:48% !important;min-width:48% !important;max-width:48% !important}' +
                 '.jf-folder-card--horizontal{-webkit-flex:0 0 48% !important;flex:0 0 48% !important;width:48% !important;min-width:48% !important;max-width:48% !important}' +
                 '.jf-folder-card--vertical{-webkit-flex:0 0 31% !important;flex:0 0 31% !important;width:31% !important;min-width:31% !important;max-width:31% !important}' +
+            '}' +
+            // На совсем узких экранах (например, компактные телефоны в портрете) даже 2 карточки
+            // в ряд могут быть тесноваты - на таких ширинах уходим в 1 карточку в ряд для лент
+            // "Продолжить просмотр"/"Медиатеки", оставляя обложки коллекций по 2.
+            '@media screen and (orientation:portrait) and (max-width:420px){' +
+                '.jf-lib-card{-webkit-flex:0 0 98% !important;flex:0 0 98% !important;width:98% !important;min-width:98% !important;max-width:98% !important}' +
+                '.jf-resume-card{-webkit-flex:0 0 98% !important;flex:0 0 98% !important;width:98% !important;min-width:98% !important;max-width:98% !important}' +
             '}';
 
         Lampa.Template.add('jellyfin_folders_css', '<style>' + css + '</style>');
