@@ -5,9 +5,7 @@
     var JELLYFIN_USER = '';
     var JELLYFIN_PASS = '';
 
-    // Оригинальная каплевидная форма иконки Jellyfin с градиентом фиолетовый→голубой
     var JELLYFIN_ICON_GRADIENT = '<svg class="jf-icon jf-icon--gradient" width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><defs><linearGradient id="jf_grad_g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#AA5CC3"/><stop offset="100%" stop-color="#00A4DC"/></linearGradient></defs><path style="fill:url(#jf_grad_g)" d="M12 .002C8.826.002-1.398 18.537.16 21.666c1.56 3.129 22.14 3.094 23.682 0C25.384 18.573 15.177 0 12 0zm7.76 18.949c-1.008 2.028-14.493 2.05-15.514 0C3.224 16.9 9.92 4.755 12.003 4.755c2.081 0 8.77 12.166 7.759 14.196zM12 9.198c-1.054 0-4.446 6.15-3.93 7.189.518 1.04 7.348 1.027 7.86 0 .511-1.027-2.874-7.19-3.93-7.19z"/></svg>';
-    // Белая версия той же иконки
     var JELLYFIN_ICON_WHITE = '<svg class="jf-icon jf-icon--white" width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 .002C8.826.002-1.398 18.537.16 21.666c1.56 3.129 22.14 3.094 23.682 0C25.384 18.573 15.177 0 12 0zm7.76 18.949c-1.008 2.028-14.493 2.05-15.514 0C3.224 16.9 9.92 4.755 12.003 4.755c2.081 0 8.77 12.166 7.759 14.196zM12 9.198c-1.054 0-4.446 6.15-3.93 7.189.518 1.04 7.348 1.027 7.86 0 .511-1.027-2.874-7.19-3.93-7.19z"/></svg>';
 
     function getIcon() {
@@ -168,11 +166,6 @@
                 req.timeout(timeoutMs);
                 var headers = options.headers || {};
 
-                // Заголовок с идентификацией клиента шлём всегда: раньше
-                // большинство GET-запросов (списки, карточки, детали фильма)
-                // отправлялись вообще без него — только с токеном в query,
-                // что выглядит подозрительнее для анти-скрейпинг фильтров,
-                // чем обычный официальный клиент.
                 headers['X-Emby-Authorization'] = this.getAuthHeader();
 
                 if (options.useTokenHeader !== false && this.token) {
@@ -202,11 +195,6 @@
                         var status = '';
                         try { status = String(err && (err.status || err.decode_code || err.code) || ''); } catch (eS) { status = ''; }
 
-                        // Некоторые прокси/сервера отдают 401 на быстрые
-                        // подряд идущие запросы с одним и тем же токеном
-                        // (похоже на анти-скрейпинг/рейтлимит, а не на
-                        // реально протухший токен). Один раз тихо повторяем
-                        // запрос с задержкой, прежде чем сдаться.
                         if (status === '401' && retriesLeft > 0) {
                             var retryOpts = {};
                             for (var k in options) { if (options.hasOwnProperty(k)) retryOpts[k] = options[k]; }
@@ -235,9 +223,8 @@
 
                 var path = '';
                 var params = '';
-                
+
                 if (type === 'thumb') {
-                    // Thumb для resume-карточек
                     path = '/Items/' + encodeURIComponent(itemId) + '/Images/Thumb';
                     params = 'fillHeight=320&fillWidth=213&quality=90';
                 } else if (type === 'backdrop') {
@@ -247,7 +234,6 @@
                     path = '/Items/' + encodeURIComponent(itemId) + '/Images/Logo';
                     params = 'maxWidth=600&quality=90';
                 } else {
-                    // Primary по умолчанию
                     path = '/Items/' + encodeURIComponent(itemId) + '/Images/Primary';
                     params = 'maxWidth=420&quality=90';
                 }
@@ -466,9 +452,7 @@
             try {
                 if (!document.getElementById('jf-resume-cards-style')) {
                     $('body').append('<style id="jf-resume-cards-style">' +
-                        // Текст вверху слева с полупрозрачной подложкой и размытием
                         '.jf-resume__meta{position:absolute;top:.5em;left:.5em;right:.5em;color:#fff;font-size:1em;font-weight:700;padding:.4em .7em;border-radius:.4em;z-index:3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.4;pointer-events:none;opacity:0;transition:opacity .2s ease;background:rgba(0,0,0,.75);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 2px 12px rgba(0,0,0,.6);text-shadow:0 1px 3px rgba(0,0,0,.8)}' +
-                        // Прогресс-бар снизу на всю ширину, яркий градиент
                         '.jf-resume__line{position:absolute;left:0;right:0;bottom:0;height:.5em;margin:0;z-index:2;background:rgba(0,0,0,.4);pointer-events:none;opacity:0;transition:opacity .2s ease;overflow:hidden}' +
                         '.jf-resume__line>div{background:linear-gradient(90deg,#AA5CC3 0%,#8B68CC 25%,#6B89DD 50%,#4BA4E8 75%,#00A4DC 100%);height:100%;box-shadow:0 -2px 16px rgba(170,92,195,.8),0 0 20px rgba(0,164,220,.6);transition:width .3s ease;position:relative}' +
                         '.jf-resume__line>div::after{content:"";position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,.3) 50%,transparent 100%);animation:jf-shine 2s ease-in-out infinite}' +
@@ -477,11 +461,6 @@
                         '.card.jf-resume--ready .card__vote{z-index:5}' +
                         '.card.jf-resume--has-vote .jf-resume__meta{right:3.6em}' +
                         '.card.focus .jf-resume__meta,.card.focus .jf-resume__line{opacity:1}' +
-                        // ВАЖНО: НЕ ставим overflow:hidden на .card__view - это обрежет фокусную рамку карточки.
-                        // Вместо этого заводим отдельную обёртку-клипер (.jf-resume__clip), которая по размеру
-                        // ровно совпадает с картинкой карточки и имеет тот же радиус скругления + overflow:hidden.
-                        // Она не является .card__view, поэтому фокусную рамку не трогает, а бар внутри неё
-                        // всегда обрезается точно по границе картинки, даже в углах.
                         '.jf-resume__clip{position:absolute;overflow:hidden;pointer-events:none;z-index:2}' +
                         '.jf-resume__clip .jf-resume__line{z-index:auto}' +
                         '</style>');
@@ -534,11 +513,6 @@
                     inner.style.width = percent + '%';
                     tl.appendChild(inner);
 
-                    // Клипер: отдельный слой того же размера, что и картинка карточки, со своим
-                    // overflow:hidden и радиусом скругления, взятым с реального элемента (картинки/
-                    // view/карточки). card__view при этом остаётся с overflow:visible, поэтому
-                    // фокусная рамка карточки не обрезается, а сам бар всегда идеально вписан
-                    // в границы картинки, включая скруглённые нижние углы.
                     var clip = document.createElement('div');
                     clip.className = 'jf-resume__clip';
 
@@ -562,20 +536,6 @@
                     if (!radius) radius = '.8em';
                     clip.style.borderRadius = radius;
 
-                    // Подгоняем клипер строго под реальные границы картинки внутри view (а не просто
-                    // на всю view), т.к. в некоторых скинах у картинки есть свой отступ снизу/сверху.
-                    //
-                    // ВАЖНО: раньше здесь использовался getBoundingClientRect() с последующей
-                    // компенсацией через scaleX/scaleY = offsetWidth/rect.width. Это давало щель в
-                    // 1px, потому что offsetWidth/Height - всегда целые числа, а rect.width/height -
-                    // дробные (плюс уже включают активный transform:scale фокуса), и деление одного
-                    // на другое накапливало субпиксельную ошибку округления именно на нижнем крае.
-                    //
-                    // Вместо этого используем offsetTop/Left/Width/Height. Эти величины НЕ зависят от
-                    // CSS transform (в отличие от getBoundingClientRect) - transform:scale фокуса меняет
-                    // только визуальный рендер, а не "дораскладочные" offset-координаты. Поскольку и
-                    // imgEl, и view измеряются одним и тем же (недробным) алгоритмом браузера, их
-                    // разница получается точной, без смешивания целых и дробных величин.
                     var syncClipBox = function () {
                         try {
                             if (!imgEl) throw 0;
@@ -585,8 +545,6 @@
                             var width = imgEl.offsetWidth;
                             var height = imgEl.offsetHeight;
 
-                            // Если между картинкой и view есть промежуточная обёртка (offsetParent
-                            // картинки - не сам view), суммируем смещения вверх по цепочке до view.
                             var node = imgEl.offsetParent;
                             var guard = 0;
                             while (node && node !== view && guard < 10) {
@@ -597,19 +555,11 @@
                             }
                             if (node !== view) throw 0;
 
-                            // clientTop/Left = толщина рамки view - абсолютно позиционированные дети
-                            // отсчитываются от внутреннего (padding) края view, поэтому вычитаем её.
                             top -= view.clientTop;
                             left -= view.clientLeft;
 
                             if (!(width > 0) || !(height > 0)) throw 0;
 
-                            // Небольшой нахлёст (оверскан) только по нижнему краю: подстраховка на
-                            // случай остаточного суб-пиксельного расхождения на слабых движках
-                            // (старый WebKit смарт-ТВ). .jf-resume__clip сам имеет overflow:hidden и
-                            // тот же радиус скругления, что и картинка, поэтому лишний пиксель снизу
-                            // не выходит за пределы карточки и визуально не заметен - он просто
-                            // гарантирует, что бар всегда доходит вплотную до нижнего края картинки.
                             var overscanBottom = 1;
 
                             clip.style.right = '';
@@ -632,7 +582,6 @@
                     clip.appendChild(tl);
                     view.appendChild(clip);
 
-                    // На случай ресайза/поворота экрана - пересчитываем размеры и позицию клипера.
                     try {
                         window.addEventListener('resize', syncClipBox);
                         window.addEventListener('orientationchange', syncClipBox);
@@ -1139,7 +1088,7 @@
                         durationSec: pb.durationSec || 0,
                         updatedAt: Date.now(),
                         mediaSourceId: pb.mediaSourceId || '',
-                        audioIndex: typeof pb.audioIndex !== 'undefined' ? pb.audioIndex : '',
+                        audioIndex: (typeof pb.audioIndex === 'undefined' || pb.audioIndex === null) ? '' : pb.audioIndex,
                         title: pb.title || ''
                     };
                     Jellyfin.setLocalItemState(pb.itemId, itemState);
@@ -1178,9 +1127,10 @@
                         try {
                             var uid = String(this.userId || '');
                             if (uid) {
+                                var aidx = (typeof pb.audioIndex === 'undefined' || pb.audioIndex === null || pb.audioIndex === '') ? null : pb.audioIndex;
                                 var startUrl = '/Users/' + encodeURIComponent(uid) + '/PlayingItems/' + encodeURIComponent(pb.itemId) +
                                     '?MediaSourceId=' + encodeURIComponent(pb.mediaSourceId || pb.itemId) +
-                                    '&AudioStreamIndex=' + encodeURIComponent(String(typeof pb.audioIndex !== 'undefined' ? pb.audioIndex : '')) +
+                                    (aidx === null ? '' : ('&AudioStreamIndex=' + encodeURIComponent(String(aidx)))) +
                                     '&PositionTicks=' + encodeURIComponent(String(this.secondsToTicks(pb.positionSec || 0))) +
                                     '&PlaySessionId=' + encodeURIComponent(String(pb.playSessionId || '')) +
                                     '&CanSeek=true';
@@ -1200,9 +1150,10 @@
                     try {
                         var uid2 = String(this.userId || '');
                         if (uid2) {
+                            var aidx2 = (typeof pb.audioIndex === 'undefined' || pb.audioIndex === null || pb.audioIndex === '') ? null : pb.audioIndex;
                             var progUrl = '/Users/' + encodeURIComponent(uid2) + '/PlayingItems/' + encodeURIComponent(pb.itemId) + '/Progress' +
                                 '?MediaSourceId=' + encodeURIComponent(pb.mediaSourceId || pb.itemId) +
-                                '&AudioStreamIndex=' + encodeURIComponent(String(typeof pb.audioIndex !== 'undefined' ? pb.audioIndex : '')) +
+                                (aidx2 === null ? '' : ('&AudioStreamIndex=' + encodeURIComponent(String(aidx2)))) +
                                 '&PositionTicks=' + encodeURIComponent(String(this.secondsToTicks(pb.positionSec || 0))) +
                                 '&PlaySessionId=' + encodeURIComponent(String(pb.playSessionId || '')) +
                                 '&IsPaused=' + (paused ? 'true' : 'false');
@@ -1384,9 +1335,8 @@
                 if (!it || !it.Id) return null;
                 var options = opts && typeof opts === 'object' ? opts : {};
                 var forceJellyfinSource = options.forceJellyfinSource || false;
-                
+
                 var providers = it.ProviderIds || it.Providerids || {};
-                // Для resume-ленты полностью игнорируем TMDB ID
                 var tmdb = forceJellyfinSource ? '' : (providers && (providers.Tmdb || providers.tmdb || providers.TMDb || ''));
                 tmdb = tmdb ? String(tmdb) : '';
 
@@ -1406,28 +1356,22 @@
                 if (resumePercent < 0) resumePercent = 0;
                 if (resumePercent > 100) resumePercent = 100;
 
-                // Для resume-ленты используем thumb (как на сервере), с fallback на primary/backdrop
                 var imgUrl = '';
                 if (forceJellyfinSource) {
-                    // Для resume-карточек
                     if (isEpisode && it.SeriesId) {
-                        // Для эпизодов в resume берем thumb серии, потом primary серии
                         imgUrl = this.buildImageUrl(it.SeriesId, 'thumb') || this.buildImageUrl(it.SeriesId, 'primary') || this.buildImageUrl(it.SeriesId, 'backdrop');
                     } else {
-                        // Для фильмов в resume - thumb, потом primary, потом backdrop
                         imgUrl = this.buildImageUrl(it.Id, 'thumb') || this.buildImageUrl(it.Id, 'primary') || this.buildImageUrl(it.Id, 'backdrop');
                     }
                 } else if (isEpisode) {
                     imgUrl = this.buildImageUrl(it.SeriesId || it.Id, 'primary') || this.buildImageUrl(it.SeriesId || it.Id, 'backdrop');
                 } else {
-                    // Стандартная логика для всех карточек: primary, потом backdrop
                     imgUrl = this.buildImageUrl(it.Id, 'primary') || this.buildImageUrl(it.Id, 'backdrop') || (it.SeriesId ? (this.buildImageUrl(it.SeriesId, 'primary') || this.buildImageUrl(it.SeriesId, 'backdrop')) : '');
                 }
 
                 var card = {
                     jellyfin_item_id: String(it.Id),
                     card_type: (isSeries || isEpisode) ? 'tv' : 'movie',
-                    // Если forceJellyfinSource=true (для resume), всегда используем jellyfin source и Jellyfin ID
                     source: (forceJellyfinSource || isEpisode) ? 'jellyfin' : ((tmdb && !isEpisode) ? 'tmdb' : 'jellyfin'),
                     id: (forceJellyfinSource || isEpisode) ? String(it.Id) : ((tmdb && !isEpisode) ? tmdb : String(it.Id)),
                     img: imgUrl,
@@ -1518,16 +1462,11 @@
             }
         },
 
-        // Превращает BoxSet (франшиза/коллекция) в данные для
-        // карточки-"папки" (JellyfinFolderCard): обложка самого BoxSet'а
-        // (Jellyfin сам собирает коллаж из постеров внутри, если своя
-        // обложка не задана) + счётчик вложенных фильмов/сериалов.
         boxsetToCard: function (it) {
             try {
                 if (!it || !it.Id) return null;
                 var childCount = 0;
                 try { childCount = parseInt(it.ChildCount, 10) || 0; } catch (e0) { childCount = 0; }
-                // Если ChildCount не пришел, пробуем получить из других полей
                 if (!childCount) {
                     try { childCount = parseInt(it.RecursiveItemCount, 10) || 0; } catch (e1) { childCount = 0; }
                 }
@@ -1549,7 +1488,6 @@
             }
         },
 
-        // Карточка библиотеки для строки "Мои медиатеки".
         libraryViewCard: function (view, kind) {
             try {
                 if (!view || !view.Id) return null;
@@ -1565,11 +1503,6 @@
             }
         },
 
-        // Единый метод получения содержимого библиотеки/папки для экрана
-        // "Мои медиатеки": kind='boxset' — список франшиз/коллекций
-        // (папок) внутри библиотеки; kind='media' — обычная сетка фильмов
-        // и сериалов внутри библиотеки или внутри конкретной франшизы/
-        // коллекции (тогда parentId — id самого BoxSet'а).
         browseItems: function (kind, parentId, page, callback, onFail) {
             this.authenticate(function () {
                 try {
@@ -1594,23 +1527,16 @@
                     if (parentId) query.push('ParentId=' + encodeURIComponent(String(parentId)));
 
                     if (kind === 'boxset') {
-                        // Библиотека типа boxsets: получаем содержимое view напрямую.
-                        // Запрашиваем RecursiveItemCount вместо ChildCount - он может быть быстрее
                         query.push('Recursive=false');
                         query.push('Fields=RecursiveItemCount');
                     } else {
-                        // Содержимое библиотеки или BoxSet'а.
-                        // Не фильтруем по IncludeItemTypes — если в библиотеке
-                        // лежат BoxSet'ы (франшизы), они тоже должны прийти.
-                        // Фильтруем на стороне клиента по типу элемента.
                         query.push('Recursive=false');
                         query.push('Fields=ChildCount,ProviderIds,PremiereDate,ProductionYear,CommunityRating,Type,OriginalTitle');
                     }
                     query.push('api_key=' + encodeURIComponent(token));
 
                     var url = server + '/Users/' + encodeURIComponent(uid) + '/Items?' + query.join('&');
-                    
-                    // Для boxsets используем меньший таймаут т.к. запрос должен быть быстрым без ChildCount
+
                     var timeout = (kind === 'boxset') ? 20 : 15;
 
                     this.request(url, 'GET', null, function (res) {
@@ -1618,16 +1544,13 @@
                         var total = 0;
                         try { total = parseInt(res.TotalRecordCount || res.totalRecordCount || 0, 10) || 0; } catch (e0) { total = 0; }
 
-                        // Для boxset-вида: если пришли BoxSet'ы/Playlist'ы — показываем их как папки,
-                        // если пришли Movie/Series — показываем как обычные карточки.
                         var cards = [];
                         for (var i = 0; i < items.length; i++) {
                             var item = items[i];
                             if (!item) continue;
                             var itemType = String(item.Type || item.type || '').toLowerCase();
-                            
+
                             var c;
-                            // BoxSet и Playlist (франшизы) — это папки с коллекциями
                             if (itemType === 'boxset' || itemType === 'playlist') {
                                 c = this.boxsetToCard(item);
                             } else {
@@ -1686,8 +1609,7 @@
                     query.push('Recursive=' + (media === 'boxset' ? 'false' : 'true'));
                     query.push('StartIndex=' + startIndex);
                     query.push('Limit=20');
-                    
-                    // Для resume нужны дополнительные поля
+
                     if (mode === 'resume') {
                         query.push('Fields=ProviderIds,PremiereDate,ProductionYear,CommunityRating,Type,UserData,SeriesId,SeriesName,ParentIndexNumber,IndexNumber,RunTimeTicks');
                     } else {
@@ -1718,13 +1640,6 @@
                         var total = 0;
                         try { total = parseInt(res.TotalRecordCount || res.totalRecordCount || res.Total || 0, 10) || 0; } catch (e0) { total = 0; }
 
-                        // Раньше здесь отфильтровывались все карточки без
-                        // соответствия TMDB (onlyTmdb), из-за чего ленты
-                        // библиотек, где у контента нет TMDB-метаданных,
-                        // оставались полностью пустыми и пропадали с главного
-                        // экрана. Теперь показываем весь контент: карточки без
-                        // TMDB-id остаются "родными" jellyfin-карточками и
-                        // открываются напрямую через сам Jellyfin.
                         var cards = [];
                         for (var i = 0; i < items.length; i++) {
                             var it = items[i];
@@ -1777,9 +1692,6 @@
             }.bind(this));
         },
 
-        // Единый источник правды для списка лент: и главный экран, и окно
-        // настроек "Ленты Jellyfin" строят список на основе одних и тех же
-        // библиотек (Views), реально присутствующих на подключённом сервере.
         getLineDefs: function (callback) {
             var fallbackDefs = function () {
                 return [
@@ -1791,11 +1703,6 @@
 
             var resumeDef = { key: 'jellyfin://resume', title: 'Продолжить просмотр', mode: 'resume', media: 'all', parentId: '' };
 
-            // Типы библиотек Jellyfin, в которых заведомо нет видео,
-            // пригодного для лент фильмов/сериалов (музыка, книги, фото).
-            // Их и только их отбрасываем — всё остальное (movies, tvshows,
-            // mixed, homevideos, boxsets, библиотеки без CollectionType и
-            // любые другие) парсим и пытаемся показать.
             var NON_VIDEO_TYPES = { music: true, musicvideos: true, books: true, photos: true };
 
             this.getViews(function (views) {
@@ -1830,11 +1737,6 @@
                     } else if (ct === 'playlists') {
                         addDef('boxset', 'latest', name || 'Франшизы', v.Id);
                     } else {
-                        // Библиотека с неизвестным/смешанным типом (mixed,
-                        // homevideos, boxsets, отсутствующий CollectionType
-                        // и т.п.) — не знаем заранее, что внутри, поэтому
-                        // пробуем и фильмы, и сериалы из неё. Пустые ленты
-                        // всё равно отфильтровываются ниже по results.length.
                         var genName = name || 'Библиотека';
                         addDef('movie', 'latest', genName, v.Id);
                         addDef('movie', 'premiere', genName, v.Id);
@@ -1842,10 +1744,6 @@
                     }
                 }
 
-                // Если на сервере не нашлось библиотек нужного типа (или
-                // Views отдал пустой список), используем общие ленты без
-                // привязки к конкретной библиотеке — но всё так же по
-                // данным этого сервера, а не чужого.
                 if (defs.length <= 1) defs = defs.concat(fallbackDefs());
 
                 callback(defs);
@@ -1858,21 +1756,15 @@
         buildMainLines: function (oncomplite, onerror) {
             var self = this;
 
-            // Один вызов getViews — строим из него и строку "Мои медиатеки",
-            // и список лент. Раньше было два параллельных вызова getViews
-            // (из buildMainLines и внутри getLineDefs), из-за чего один из
-            // них мог вернуть пустой результат при гонке authenticate.
             self.getViews(function (allViews) {                var viewList = Array.isArray(allViews) ? allViews : [];
                 var NON_VIDEO_TYPES = { music: true, musicvideos: true, books: true, photos: true };
 
-                // --- Строка "Мои медиатеки" ---
                 var libCards = [];
                 for (var vi = 0; vi < viewList.length; vi++) {
                     var vv = viewList[vi];
                     if (!vv || !vv.Id) continue;
                     var vct = '';
                     try { vct = String(vv.CollectionType || vv.collectionType || '').toLowerCase(); } catch (e0) { vct = ''; }
-                    // Пропускаем только явно не-видео библиотеки
                     if (vct === 'music' || vct === 'musicvideos' || vct === 'books' || vct === 'photos' || vct === 'livetv' || vct === 'trailers') continue;
                     var vkind = (vct === 'boxsets') ? 'boxset' : 'media';
                     var lc = self.libraryViewCard(vv, vkind);
@@ -1902,7 +1794,6 @@
                     pushLine(libLine);
                 }
 
-                // --- Ленты из библиотек ---
                 var fallbackDefs = [
                     { key: 'jellyfin://latest?type=movie&parentId=', title: 'Последние фильмы', mode: 'latest', media: 'movie', parentId: '' },
                     { key: 'jellyfin://latest?type=tv&parentId=', title: 'Последние сериалы', mode: 'latest', media: 'tv', parentId: '' },
@@ -1935,7 +1826,6 @@
                     } else if (ct === 'tvshows') {
                         addDef('tv', 'latest', name || 'Сериалы', v.Id);
                     } else if (ct === 'boxsets') {
-                        // boxsets — только карточка в "Мои медиатеки", лент не генерируем
                     } else if (ct === 'playlists') {
                         addDef('boxset', 'latest', name || 'Франшизы', v.Id);
                     } else {
@@ -1948,7 +1838,6 @@
 
                 if (defs.length <= 1) defs = defs.concat(fallbackDefs);
 
-                // --- Параллельная загрузка лент с concurrency=5 (было 3) ---
                 var total = defs.length;
                 var done = 0;
                 var nextIdx = Math.min(5, total);
@@ -2017,7 +1906,6 @@
                 }
 
             }, function () {
-                // getViews упал — показываем хотя бы пустой главный экран
                 try { console.warn('[Jellyfin] getViews не загрузился'); } catch (e0) {}
                 oncomplite([]);
             });
@@ -2039,10 +1927,6 @@
                         total_pages: Math.max(1, Math.ceil((data.total || 0) / 40)),
                         total_results: data.total || 0
                     };
-                    // Устанавливаем cardClass для BoxSet-карточек:
-                    // либо явный kind='boxset', либо сервер вернул BoxSet-элементы
-                    // в ответ на media-запрос (например библиотека типа playlists
-                    // содержит только папки-франшизы).
                     var hasBoxsets = false;
                     if (kind === 'boxset') {
                         hasBoxsets = true;
@@ -2052,9 +1936,8 @@
                         }
                     }
                     if (hasBoxsets) {
-                        // Передаем kind в карточку чтобы различать коллекции (vertical) и франшизы (horizontal)
-                        lineData.cardClass = function (item) { 
-                            return new JellyfinFolderCard(item, kind); 
+                        lineData.cardClass = function (item) {
+                            return new JellyfinFolderCard(item, kind);
                         };
                     }
                     callback(lineData);
@@ -2084,8 +1967,7 @@
 
                 Jellyfin.authenticate(function () {
                     var server = sget('jellyfin_server', JELLYFIN_SERVER).replace(/\/$/, '');
-                    
-                    // Формируем URL с параметрами для GET запроса
+
                     var params = [
                         'searchTerm=' + encodeURIComponent(query),
                         'includeItemTypes=Movie,Series,BoxSet,Playlist',
@@ -2097,17 +1979,13 @@
                         'includeArtists=false',
                         'userId=' + encodeURIComponent(Jellyfin.userId)
                     ];
-                    
+
                     var url = server + '/Search/Hints?' + params.join('&');
 
                     Jellyfin.request(url, 'GET', null, function (data) {
-                        console.log('[Jellyfin Search] Query:', query);
-                        console.log('[Jellyfin Search] Response:', data);
-                        
+
                         var items = (data && Array.isArray(data.SearchHints)) ? data.SearchHints : [];
-                        console.log('[Jellyfin Search] Items count:', items.length);
-                        
-                        // Группируем по типам
+
                         var movies = [];
                         var series = [];
                         var boxsets = [];
@@ -2116,9 +1994,7 @@
                         for (var i = 0; i < items.length; i++) {
                             var item = items[i];
                             var itemType = String(item.Type || '').toLowerCase();
-                            console.log('[Jellyfin Search] Item', i, '- Type:', item.Type, '| Name:', item.Name);
-                            
-                            // Конвертируем SearchHint в формат Item
+
                             var fullItem = {
                                 Id: item.Id,
                                 Name: item.Name,
@@ -2134,9 +2010,9 @@
                                 SeriesName: item.Series,
                                 RunTimeTicks: item.RunTimeTicks
                             };
-                            
+
                             var card = null;
-                            
+
                             if (itemType === 'movie') {
                                 card = Jellyfin.jellyfinToCard(fullItem);
                                 if (card) movies.push(card);
@@ -2164,52 +2040,47 @@
                             }
                         }
 
-                        console.log('[Jellyfin Search] Movies:', movies.length, 'Series:', series.length, 'BoxSets:', boxsets.length, 'Playlists:', playlists.length);
 
                         var finish = function () {
-                            // Формируем ленты
                             var results = [];
-                            
+
                             if (movies.length > 0) {
                                 results.push({
                                     title: 'Jellyfin • Фильмы',
                                     results: movies
                                 });
                             }
-                            
+
                             if (series.length > 0) {
                                 results.push({
                                     title: 'Jellyfin • Сериалы',
                                     results: series
                                 });
                             }
-                            
+
                             if (boxsets.length > 0) {
                                 results.push({
                                     title: 'Jellyfin • Коллекции',
                                     results: boxsets,
-                                    cardClass: function (item) { 
-                                        return new JellyfinFolderCard(item, 'media'); 
+                                    cardClass: function (item) {
+                                        return new JellyfinFolderCard(item, 'media');
                                     }
                                 });
                             }
-                            
+
                             if (playlists.length > 0) {
                                 results.push({
                                     title: 'Jellyfin • Франшизы',
                                     results: playlists,
-                                    cardClass: function (item) { 
-                                        return new JellyfinFolderCard(item, 'media'); 
+                                    cardClass: function (item) {
+                                        return new JellyfinFolderCard(item, 'media');
                                     }
                                 });
                             }
 
-                            console.log('[Jellyfin Search] Results lines:', results.length);
                             oncomplite(results);
                         };
 
-                        // В Search/Hints обычно не приходит ChildCount, поэтому добираем
-                        // количество вложенных тайтлов отдельным запросом, чтобы показать бейдж.
                         try {
                             var ids = [];
                             var seenIds = {};
@@ -2413,7 +2284,6 @@
                     } catch (e9) {}
                 },
                 onRender: function (line) {
-                    // Для лент с франшизами и коллекциями используем JellyfinFolderCard
                     var t = '';
                     try { t = String(line && line.data && line.data.title ? line.data.title : ''); } catch (e0) { t = ''; }
                     if (t === 'Jellyfin • Франшизы' || t === 'Jellyfin • Коллекции') {
@@ -2422,10 +2292,10 @@
                                 onlyCreateAndAppend: function (element) {
                                     if (!element) return;
                                     if (!element.params) element.params = {};
-                                    
+
                                     var card = new JellyfinFolderCard(element, 'media');
                                     card.create();
-                                    
+
                                     var html = $(card.item);
                                     html.on('visible', function () {
                                         try { card.visible(); } catch (e) {}
@@ -2481,7 +2351,7 @@
                                             }
                                         }
                                     } catch (eCcX) {}
-                                    
+
                                     var emit = function (event) {
                                         var name = event.charAt(0).toUpperCase() + event.slice(1);
                                         var only = false;
@@ -2670,39 +2540,22 @@
                 return originalList(params, oncomplite, onerror);
             };
 
-            // Карточки без TMDB-соответствия (source: 'jellyfin') раньше
-            // пытались открыть стандартную страницу "full", которую Lampa
-            // умеет строить только для source 'tmdb'/'cub' — в результате
-            // клик по такой карточке ничего не делал. Теперь такие клики
-            // перехватываются и ведут прямо во внутренний плеер/меню серий
-            // Jellyfin, минуя обычную страницу описания.
             try {
                 var originalActivityPush = Lampa.Activity.push;
                 Lampa.Activity.push = function (params) {
                     try {
                         if (params && params.component === 'full' && params.source === 'jellyfin' && params.id) {
-                            console.log('[Jellyfin] Activity.push intercepted:', params);
                             var stopNoty = Jellyfin.delayedNoty('Jellyfin: открываю...', 450);
-                            // Если это BoxSet (папка-франшиза) — открываем browse, не плеер
                             var card = params.movie || params.card || params.data || {};
-                            console.log('[Jellyfin] Card data:', card);
                             var boxsetId = card.jellyfin_boxset_id || '';
-                            console.log('[Jellyfin] BoxSet ID:', boxsetId);
                             if (!boxsetId && params.id) {
-                                // Проверяем по сохранённой карте tmdb→jellyfin
-                                // Если id совпадает с известным boxset — тоже browse
                                 try {
                                     var tmdbMap = Lampa.Storage.get('jellyfin_tmdb_map', {}) || {};
-                                    // boxset_id хранится в jellyfin_boxset_id карточки,
-                                    // которая не попадает в tmdb_map — значит если id
-                                    // не найден в tmdb_map ни для movie ни для tv,
-                                    // но карточка имеет card_type отсутствующий — это boxset.
                                 } catch(eBm) {}
                             }
 
                             if (boxsetId) {
                                 try { stopNoty(); } catch (e0) {}
-                                // BoxSet — открываем содержимое как browse
                                 Lampa.Activity.push({
                                     url: 'jellyfin://browse?parentId=' + encodeURIComponent(boxsetId) + '&kind=media&title=' + encodeURIComponent(card.title || card.name || ''),
                                     title: card.title || card.name || '',
@@ -2720,7 +2573,6 @@
                             };
                             Jellyfin.authenticate(function () {
                                 Jellyfin.getItemDetails(jfId, function (full) {
-                                    // Дополнительная проверка: если сервер вернул BoxSet — открываем browse
                                     if (full && String(full.Type || '').toLowerCase() === 'boxset') {
                                         try { stopNoty(); } catch (e0) {}
                                         Lampa.Activity.push({
@@ -2731,10 +2583,6 @@
                                         });
                                         return;
                                     }
-                                    // stopNoty передаётся внутрь как onReady — уведомление
-                                    // погаснет только когда реально покажется первая видимая
-                                    // панель (список сезонов / попап "продолжить" / начало
-                                    // воспроизведения), а не сразу после получения деталей.
                                     Jellyfin.openPlayMenu(full || { Id: jfId }, back, null, stopNoty);
                                 });
                             });
@@ -3271,9 +3119,6 @@
             });
         },
 
-        // Пресеты качества как в веб-клиенте Jellyfin: "Оригинал" — прямое
-        // воспроизведение без перекодирования, остальные — транскодирование
-        // с ограничением битрейта/разрешения на стороне сервера.
         QUALITY_PRESETS: [
             { id: 'original', title: 'Оригинал (без сжатия)', bitrate: 0, maxHeight: 0 },
             { id: '1080-20', title: '1080p • 20 Мбит/с', bitrate: 20000000, maxHeight: 1080 },
@@ -3332,7 +3177,6 @@
 
         playWithOptions: function (item, mediaSource, audioIndex, startSeconds, quality) {
             this.authenticate(function () {
-                // Проверяем, что элемент подходит для воспроизведения
                 if (!item || !item.Id) {
                     Lampa.Noty.show('Jellyfin: Неверные данные элемента');
                     return;
@@ -3342,9 +3186,7 @@
                 var msid = '';
                 try { msid = mediaSource && mediaSource.Id ? mediaSource.Id : (item && (item.MediaSourceId || (item.MediaSources && item.MediaSources[0] && item.MediaSources[0].Id) || '')); } catch (e0) { msid = ''; }
 
-                // Если нет mediaSource и нет MediaSources в item, попробуем получить через прямой stream endpoint
                 if (!msid && (!item.MediaSources || !item.MediaSources.length)) {
-                    console.log('Jellyfin: MediaSources отсутствует, пробуем прямое воспроизведение для', item.Id, item.Name);
                 }
 
                 var q = quality && typeof quality === 'object' ? quality : this.QUALITY_PRESETS[0];
@@ -3356,9 +3198,6 @@
                 if (isDirect) {
                     url = server + '/Videos/' + item.Id + '/stream?static=true&api_key=' + encodeURIComponent(this.token || '');
                 } else {
-                    // Транскодирование на сервере: ограничиваем битрейт и
-                    // (опционально) высоту кадра, как это делает сам веб-клиент
-                    // Jellyfin в меню "Качество".
                     url = server + '/Videos/' + item.Id + '/stream.mp4?VideoCodec=h264&AudioCodec=aac,mp3&MaxStreamingBitrate=' + q.bitrate + '&VideoBitrate=' + Math.round(q.bitrate * 0.85) + '&AudioBitrate=128000';
                     if (q.maxHeight) url += '&MaxHeight=' + encodeURIComponent(String(q.maxHeight));
                     url += '&PlaySessionId=' + encodeURIComponent(playSessionId) + '&DeviceId=' + encodeURIComponent(deviceId) + '&api_key=' + encodeURIComponent(this.token || '');
@@ -3402,11 +3241,6 @@
         openPlayMenu: function (item, onBack, opts, onReady) {
             var ctx = opts && typeof opts === 'object' ? opts : {};
             var readyFired = false;
-            // fireReady вызывается ровно один раз — непосредственно перед тем,
-            // как на экране реально появится первая видимая панель (список
-            // сезонов, попап "продолжить просмотр" или прямой старт
-            // воспроизведения). Именно в этот момент должно погаснуть
-            // уведомление "Jellyfin: открываю...", а не раньше.
             var fireReady = function () {
                 if (readyFired) return;
                 readyFired = true;
@@ -3434,7 +3268,7 @@
                         try { localState = this.getLocalItemState(playItem && playItem.Id ? playItem.Id : ''); } catch (e00) { localState = null; }
 
                         var showAudioForSource = function (ms, backH) {
-                            this.playWithOptions(playItem, ms, null, resumeSeconds || 0);
+                            this.playWithOptions(playItem, ms, undefined, resumeSeconds || 0);
                         }.bind(this);
 
                         if (sources && sources.length > 1) {
@@ -3539,7 +3373,6 @@
                             var openSeriesContinue = function (imgUrl) {
                                 var img = imgUrl || fallbackImg;
                                 fireReady();
-                                // ВСЕГДА показываем попап для сериалов, даже если нет resume
                                 if (!ctx.skipContinuePopup) {
                                     this.openContinuePopup({
                                         title: 'Продолжить просмотр?',
@@ -3548,13 +3381,11 @@
                                         image: img,
                                         percent: percent,
                                         onContinue: function () {
-                                            // Если есть resumeEpisode с данными - продолжаем его
                                             if (resumeEpisode && resumeEpisode.Id) {
                                                 this.getItemDetails(resumeEpisode.Id, function (epFull) {
                                                     playFlow(epFull || resumeEpisode, resumeSec, back, { forceSelect: false });
                                                 }.bind(this));
                                             } else {
-                                                // Если нет данных - показываем список сезонов
                                                 proceedSeasons();
                                             }
                                         }.bind(this),
@@ -3573,7 +3404,6 @@
                                 openSeriesContinue('');
                             }
                         }.bind(this), function () {
-                            // Если getSeriesResume вернул ошибку, все равно показываем попап с локальными данными
                             if (localSeries && localSeries.itemId) {
                                 this.getItemDetails(localSeries.itemId, function (epFull) {
                                     if (!epFull || !epFull.Id) return proceedSeasons();
@@ -3603,7 +3433,6 @@
                                 }.bind(this));
                                 return;
                             }
-                            // Если совсем нет данных - просто показываем список сезонов
                             fireReady();
                             proceedSeasons();
                         }.bind(this));
@@ -3638,10 +3467,10 @@
 
     function showSelection(items, onBack) {
         var list = items.map(function (item) {
-            return { 
-                title: item.Name + (item.ProductionYear ? ' (' + item.ProductionYear + ')' : ''), 
-                subtitle: Jellyfin.getQuality(item, item && item.MediaSources && item.MediaSources[0] ? item.MediaSources[0] : null), 
-                item: item 
+            return {
+                title: item.Name + (item.ProductionYear ? ' (' + item.ProductionYear + ')' : ''),
+                subtitle: Jellyfin.getQuality(item, item && item.MediaSources && item.MediaSources[0] ? item.MediaSources[0] : null),
+                item: item
             };
         });
 
@@ -3721,19 +3550,6 @@
         $('body').append('<style id="jellyfin-button-styles">.jellyfin-qc{padding:1.2em !important;}.jellyfin-qc__title{font-size:1.2em !important;font-weight:700 !important;margin-bottom:.8em !important;}.jellyfin-qc__text{opacity:.85 !important;line-height:1.35 !important;margin-bottom:1em !important;}.jellyfin-qc__code{font-size:2.4em !important;font-weight:900 !important;letter-spacing:.18em !important;padding:.45em .4em !important;border-radius:.6em !important;background:rgba(255,255,255,.08) !important;border:1px solid rgba(255,255,255,.18) !important;text-align:center !important;}.jellyfin-qc__url{margin-top:1em !important;opacity:.7 !important;word-break:break-all !important;font-size:.9em !important;}.jellyfin-qc__status{margin-top:1em !important;font-weight:600 !important;opacity:.9 !important;}.jellyfin-continue-popup{position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.72);}.jellyfin-continue__card{background:#1a1a1a;border-radius:1em;width:44em;max-width:94vw;overflow:hidden;box-shadow:0 1em 4em rgba(0,0,0,0.8);border:1px solid rgba(255,255,255,0.06);}.jellyfin-continue__img{position:relative;width:100%;padding-top:56.25%;background:#000;overflow:hidden;}.jellyfin-continue__img img{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;opacity:0.75;}.jellyfin-continue__details{position:absolute;bottom:0;left:0;right:0;padding:1.3em;background:linear-gradient(transparent,rgba(0,0,0,0.95));}.jellyfin-continue__title{font-size:1.7em;font-weight:700;margin-bottom:0.25em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#fff;}.jellyfin-continue__info{font-size:1.05em;opacity:0.65;color:#fff;}.jellyfin-continue__body{padding:0 1.3em 0.4em;margin-top:-0.4em;}.jellyfin-continue__question{font-size:1.15em;font-weight:600;margin:1em 0 0.8em;}.jellyfin-continue__footer{display:flex;flex-direction:row;gap:1em;padding:1.2em;}.jellyfin-continue__btn{position:relative;padding:1em 1.2em;border-radius:0.6em;cursor:pointer;font-size:1.15em;font-weight:600;background:rgba(255,255,255,0.08);color:#fff;transition:all 0.2s ease;text-align:center;flex:1;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.06);}.jellyfin-continue__btn.focus{background:#fff;color:#000;transform:translateY(-0.2em);box-shadow:0 0.5em 1.5em rgba(255,255,255,0.2);}.jellyfin-continue__bar{height:0.42em;background:rgba(255,255,255,0.12);border-radius:0.3em;overflow:hidden;}.jellyfin-continue__barfill{height:100%;background:#9B59B6;width:0%;}.jellyfin-badge{display:inline-block;margin-left:0.55em;padding:0.18em 0.55em;border-radius:0.55em;font-size:0.78em;line-height:1.2;font-weight:700;vertical-align:middle;white-space:nowrap;background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.12);color:#fff;}.jellyfin-badge--last{background:rgba(155,89,182,0.25);border-color:rgba(155,89,182,0.45);}</style>');
     }
 
-    // ------------------------------------------------------------------
-    // Карточка библиотеки для строки "Мои медиатеки" на главном экране.
-    // Широкая (16:9) обложка с названием библиотеки поверх — как на
-    // главном экране веб-клиента Jellyfin. Клик открывает содержимое
-    // библиотеки: обычную сетку (Фильмы/Сериалы/Мультфильмы и т.п.) или,
-    // для библиотек типа boxsets (Франшизы/Коллекции), список папок.
-    //
-    // Важно: Lampa.Template.js() отдаёт jQuery-обёртку (как и в плагине
-    // "Коллекции"), а не сырой DOM-элемент — у неё нет .querySelector,
-    // только .find(). Раньше здесь ошибочно вызывался .querySelector,
-    // из-за чего build() падал с исключением и Lampa молча откатывалась
-    // на карточку по умолчанию (отсюда и вертикальная форма без обложки).
-    // ------------------------------------------------------------------
     function JellyfinLibraryCard(data) {
         this.data = data;
 
@@ -3957,12 +3773,10 @@
             var self = this;
             if (this.img_el) {
                 this.img_el.onload = function () { try { if (self.item_dom) self.item_dom.classList.add('card--loaded'); } catch (e) {} };
-                this.img_el.onerror = function () { 
-                    try { 
-                        // Если thumb не загрузился, пробуем primary, потом backdrop
+                this.img_el.onerror = function () {
+                    try {
                         var currentSrc = self.img_el.src || '';
                         if (currentSrc.indexOf('/Images/Thumb') !== -1) {
-                            // Пробуем primary
                             var itemId = '';
                             try { itemId = String(data.jellyfin_item_id || data.jellyfin_id || data.id || ''); } catch (e0) { itemId = ''; }
                             if (itemId) {
@@ -3973,7 +3787,6 @@
                                 }
                             }
                         } else if (currentSrc.indexOf('/Images/Primary') !== -1) {
-                            // Пробуем backdrop
                             var itemId2 = '';
                             try { itemId2 = String(data.jellyfin_item_id || data.jellyfin_id || data.id || ''); } catch (e1) { itemId2 = ''; }
                             if (itemId2) {
@@ -3984,11 +3797,10 @@
                                 }
                             }
                         }
-                        // Если ничего не помогло - заглушка
                         self.img_el.src = './img/img_load.svg';
-                    } catch (e) { 
+                    } catch (e) {
                         self.img_el.src = './img/img_load.svg';
-                    } 
+                    }
                 };
             }
         };
@@ -4029,12 +3841,9 @@
                 var stopNoty = Jellyfin.delayedNoty('Jellyfin: открываю...', 450);
                 Jellyfin.authenticate(function () {
                     Jellyfin.getItemDetails(jfId, function (full) {
-                        // Если это эпизод из ленты "Продолжить просмотр" и у нас есть серия,
-                        // открываем серию с попапом вместо прямого запуска эпизода
                         var typeLower = '';
                         try { typeLower = String(full.Type || '').toLowerCase(); } catch (eT0) { typeLower = ''; }
                         if (typeLower === 'episode' && full.SeriesId) {
-                            // Открываем родительскую серию, чтобы показать попап с выбором
                             Jellyfin.getItemDetails(full.SeriesId, function (seriesFull) {
                                 Jellyfin.openPlayMenu(seriesFull || { Id: full.SeriesId }, null, null, stopNoty);
                             });
@@ -4062,16 +3871,6 @@
         this.render = function (js) { return js ? this.item : $(this.item); };
     }
 
-    // ------------------------------------------------------------------
-    // Карточка-"папка" для франшизы/коллекции (BoxSet) внутри библиотеки
-    // типа boxsets. Обложку берёт напрямую у самого BoxSet'а — Jellyfin
-    // сам собирает коллаж из постеров вложенных фильмов, если своя
-    // обложка не задана, поэтому отдельно тянуть и раскладывать постеры
-    // не нужно. Визуально — форма папки (вырез-язычок сверху слева, как
-    // в плагине "Коллекции") + бейдж с количеством вложенных тайтлов.
-    // Клик открывает обычную сетку фильмов/сериалов внутри этой франшизы/
-    // коллекции.
-    // ------------------------------------------------------------------
     function JellyfinFolderCard(data, kind) {
         this.data = data;
         this.kind = kind || 'media'; // 'boxset' для коллекций, 'media' для франшиз
@@ -4086,7 +3885,6 @@
         }
 
         this.build = function () {
-            // Для коллекций используем вертикальный шаблон, для франшиз - горизонтальный
             var templateName = (this.kind === 'boxset') ? 'jellyfin_folder_card_vertical' : 'jellyfin_folder_card';
             this.item = Lampa.Template.js(templateName);
             if (!this.item) return;
@@ -4181,7 +3979,6 @@
                 '<div class="jf-resume-card__sub"></div>' +
             '</div>');
 
-        // Горизонтальная карточка для франшиз (16:9)
         Lampa.Template.add('jellyfin_folder_card',
             '<div class="card selector layer--visible layer--render card--collection jf-folder-card jf-folder-card--horizontal">' +
                 '<div class="card__view">' +
@@ -4191,7 +3988,6 @@
                 '<div class="card__title"></div>' +
             '</div>');
 
-        // Вертикальная карточка для коллекций БЕЗ выреза (обычный прямоугольник)
         Lampa.Template.add('jellyfin_folder_card_vertical',
             '<div class="card selector layer--visible layer--render card--collection jf-folder-card jf-folder-card--vertical">' +
                 '<div class="card__view">' +
@@ -4217,22 +4013,11 @@
             '.jf-resume-card.card--loaded .jf-resume-card__img{opacity:1 !important}' +
             '.jf-resume-card__title{margin-top:.55em;font-size:1.1em;font-weight:600;line-height:1.2;max-height:2.4em;overflow:hidden}' +
             '.jf-resume-card__sub{margin-top:.25em;font-size:.95em;opacity:.75;line-height:1.25;max-height:2.5em;overflow:hidden}' +
-            // Раньше скругление нижних углов задавалось прямо на .jf-resume-card__bar - тонкой
-            // полоске высотой всего .45em. Но когда высота блока МЕНЬШЕ радиуса скругления, CSS
-            // обязан уменьшить радиус, чтобы он влез в блок (стандартный алгоритм border-radius) -
-            // поэтому даже при точно совпадающем (унаследованном) значении радиуса дуга на тонком
-            // баре получалась туже и меньше настоящей дуги картинки, и угол бара визуально "вылезал"
-            // за пределы кривой картинки. Решение - завести .jf-resume-card__barclip: невидимую
-            // обёртку РАЗМЕРОМ СО ВСЮ КАРТИНКУ (100% x 100%, а не .45em), с overflow:hidden и тем
-            // же унаследованным радиусом. На таком большом блоке радиус никогда не сжимается, и он
-            // аккуратно обрезает тонкий бар внутри себя ровно по той же дуге, что и картинка - независимо
-            // от overflow у .card__view (который в фокусе становится visible).
             '.jf-resume-card__barclip{position:absolute;top:0;left:0;right:0;bottom:0;overflow:hidden;pointer-events:none;opacity:0;transition:opacity .2s ease;border-radius:inherit}' +
             '.jf-resume-card__bar{position:absolute;left:0;right:0;bottom:0;height:.45em;background:rgba(0,0,0,.5);pointer-events:none}' +
             '.jf-resume-card__barfill{height:100%;width:0%;background:linear-gradient(90deg,#AA5CC3 0%,#8B68CC 25%,#6B89DD 50%,#4BA4E8 75%,#00A4DC 100%);transition:width .3s ease}' +
             '.jf-resume-card__time{display:none !important}' +
             '.jf-resume-card.focus .jf-resume-card__barclip,.jf-resume-card.focus .jf-resume-card__time{opacity:1}' +
-            // Горизонтальные карточки франшиз (16:9) - фикс для фокусной рамки
             '.jf-folder-card--horizontal{position:relative}' +
             '.jf-folder-card--horizontal .card__view{padding-bottom:100% !important;position:relative;border-radius:.8em !important;overflow:visible !important;background-color:#2b2b2b}' +
             '.jf-folder-card--horizontal .card__view::after{content:"";position:absolute;top:0;left:0;right:0;bottom:0;border-radius:.8em;overflow:hidden;pointer-events:none}' +
@@ -4240,7 +4025,6 @@
             '.jf-folder-card--horizontal.card--loaded .jf-folder-card__img{opacity:1 !important}' +
             '.jf-folder-card--horizontal .jf-folder-card__badge{position:absolute;top:.5em;right:.5em;min-width:1.9em;height:1.9em;padding:0 .5em;border-radius:1em;background:#2f9bf0;color:#fff;font-size:.9em;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.5);z-index:5}' +
             '.jf-folder-card--horizontal .card__title{margin-top:.5em;text-align:center}' +
-            // Вертикальные карточки коллекций БЕЗ выреза
             '.jf-folder-card--vertical{position:relative}' +
             '.jf-folder-card--vertical .card__view{padding-bottom:150%;position:relative;border-radius:.8em !important;overflow:visible !important;background-color:#3e3e3e}' +
             '.jf-folder-card--vertical .card__view::after{content:"";position:absolute;top:0;left:0;right:0;bottom:0;border-radius:.8em;overflow:hidden;pointer-events:none}' +
@@ -4249,23 +4033,12 @@
             '.jf-folder-card--vertical .jf-folder-card__badge{position:absolute;top:.5em;right:.5em;min-width:1.9em;height:1.9em;padding:0 .5em;border-radius:1em;background:#2f9bf0;color:#fff;font-size:.9em;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.5);z-index:5}' +
             '.jf-folder-card--vertical .card__title{margin-top:.5em;text-align:center}' +
             'body.size--bigger .jf-lib-card{-webkit-flex-basis:31.5%;flex-basis:31.5%}' +
-            // Адаптив для мобильных устройств.
-            // Раньше переключение шло по "max-width:480px" - это ненадёжно, т.к. CSS-ширина
-            // экрана телефона в портретной ориентации у многих устройств больше 480px, и правило
-            // просто не срабатывало. В итоге широкие (16:9) карточки продолжали идти по 3 в ряд
-            // и в портрете, и в ландшафте - а поскольку в портрете весь ряд физически уже, те же
-            // 3 карточки выглядели гораздо мельче. Теперь переключаемся по ориентации экрана:
-            // в портрете широкие карточки идут по 2 в ряд (48%), а не по 3 (31.5%), и остаются
-            // крупными независимо от точной ширины устройства в px.
             '@media screen and (orientation:portrait){' +
                 '.jf-lib-card{-webkit-flex:0 0 48% !important;flex:0 0 48% !important;width:48% !important;min-width:48% !important;max-width:48% !important}' +
                 '.jf-resume-card{-webkit-flex:0 0 48% !important;flex:0 0 48% !important;width:48% !important;min-width:48% !important;max-width:48% !important}' +
                 '.jf-folder-card--horizontal{-webkit-flex:0 0 48% !important;flex:0 0 48% !important;width:48% !important;min-width:48% !important;max-width:48% !important}' +
                 '.jf-folder-card--vertical{-webkit-flex:0 0 31% !important;flex:0 0 31% !important;width:31% !important;min-width:31% !important;max-width:31% !important}' +
             '}' +
-            // На совсем узких экранах (например, компактные телефоны в портрете) даже 2 карточки
-            // в ряд могут быть тесноваты - на таких ширинах уходим в 1 карточку в ряд для лент
-            // "Продолжить просмотр"/"Медиатеки", оставляя обложки коллекций по 2.
             '@media screen and (orientation:portrait) and (max-width:420px){' +
                 '.jf-lib-card{-webkit-flex:0 0 98% !important;flex:0 0 98% !important;width:98% !important;min-width:98% !important;max-width:98% !important}' +
                 '.jf-resume-card{-webkit-flex:0 0 98% !important;flex:0 0 98% !important;width:98% !important;min-width:98% !important;max-width:98% !important}' +
@@ -4281,7 +4054,6 @@
         if (Jellyfin._componentsRegistered) return;
         Jellyfin._componentsRegistered = true;
 
-        // Главный экран Jellyfin: "Мои медиатеки" + ленты.
         Lampa.Component.add('jellyfin_main', function (object) {
             var comp = new Lampa.InteractionMain(object);
             comp.create = function () {
@@ -4295,7 +4067,6 @@
             comp.onMore = function (data) {
                 var url = data && (data.url || data.category);
                 if (!url) return;
-                // "Мои медиатеки" — нет отдельной страницы "показать всё"
                 if (String(url).indexOf('jellyfin://libraries') === 0) return;
                 Lampa.Activity.push({
                     url: url,
@@ -4335,7 +4106,6 @@
             return comp;
         });
 
-        // Плоская сетка: содержимое библиотеки или папки (BoxSet).
         Lampa.Component.add('jellyfin_browse', function (object) {
             var comp = new Lampa.InteractionCategory(object);
             comp.create = function () {
@@ -4368,7 +4138,6 @@
     function init() {
         if (!window.Lampa) return setTimeout(init, 500);
         Lampa.SettingsApi.addComponent({ component: 'jellyfin_settings', name: 'Jellyfin', icon: getIcon() });
-        Lampa.SettingsApi.addParam({ component: 'jellyfin_settings', param: { name: 'jellyfin_server', type: 'input', values: '', 'default': JELLYFIN_SERVER }, field: { name: 'Адрес сервера', description: 'Например: https://myserver.example.com' } });
         Lampa.SettingsApi.addParam({
             component: 'jellyfin_settings',
             param: { name: 'jellyfin_auth_status', type: 'static' },
@@ -4401,6 +4170,7 @@
                 }
             }
         });
+        Lampa.SettingsApi.addParam({ component: 'jellyfin_settings', param: { name: 'jellyfin_server', type: 'input', values: '', 'default': JELLYFIN_SERVER }, field: { name: 'Адрес сервера', description: 'Например: https://myserver.example.com' } });
         Lampa.SettingsApi.addParam({ component: 'jellyfin_settings', param: { name: 'jellyfin_user', type: 'input', values: '', 'default': JELLYFIN_USER }, field: { name: 'Логин', description: '' } });
         Lampa.SettingsApi.addParam({ component: 'jellyfin_settings', param: { name: 'jellyfin_pass', type: 'input', values: '', 'default': JELLYFIN_PASS }, field: { name: 'Пароль', description: '' } });
         Lampa.SettingsApi.addParam({ component: 'jellyfin_settings', param: { type: 'button', name: 'jellyfin_login' }, field: { name: 'Войти', description: 'Авторизоваться по логину и паролю' }, onChange: function () {
@@ -4420,7 +4190,6 @@
         Lampa.SettingsApi.addParam({ component: 'jellyfin_settings', param: { type: 'button', name: 'jellyfin_lines_config' }, field: { name: 'Ленты Jellyfin', description: 'Порядок и видимость лент в разделе Jellyfin' }, onChange: function () { Jellyfin.configureLinesUI(); } });
         Lampa.SettingsApi.addParam({ component: 'jellyfin_settings', param: { type: 'button', name: 'jellyfin_logout' }, field: { name: 'Выйти', description: 'Удалить сохранённый токен Jellyfin' }, onChange: function () { Jellyfin.clearAuth(); try { Lampa.Noty.show('Jellyfin: токен очищен'); } catch (e0) {} } });
 
-        // Настройка стиля иконки
         Lampa.SettingsApi.addParam({
             component: 'jellyfin_settings',
             param: { type: 'button', name: 'jellyfin_icon_style_btn' },
