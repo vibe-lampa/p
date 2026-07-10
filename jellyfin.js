@@ -3493,76 +3493,79 @@
         });
     }
 
-    var jellyfinBtnEnsureId = 0;
+    function bindJellyfinButton(btn, movie) {
+        try { btn.off('hover:enter click'); } catch (e0) {}
+        btn.on('hover:enter click', function () {
+            var enabled = null;
+            try { enabled = Lampa.Controller.enabled(); } catch (e0) { enabled = null; }
+            var restore = function () {
+                Lampa.Controller.toggle(enabled && enabled.name ? enabled.name : 'full_start');
+                setTimeout(function () {
+                    try {
+                        if (btn && btn.length) Lampa.Controller.collectionFocus(btn[0], btn.parent());
+                    } catch (e1) {}
+                }, 10);
+            };
 
-    function addJellyfinButton(movie, force) {
-        var buttons = $('.full-start-new__buttons, .full-start__buttons');
-        if (!buttons.length) return false;
-        if (force) {
-            try { $('.button--jellyfin').remove(); } catch (e0) {}
-        }
-        if (!buttons.find('.button--jellyfin').length) {
-            var btn = $('<div class="full-start__button selector button--jellyfin"></div>');
-            btn.append($(getIcon()));
-            btn.append($('<span>Jellyfin</span>'));
-            btn.on('hover:enter click', function () {
-                var enabled = null;
-                try { enabled = Lampa.Controller.enabled(); } catch (e0) { enabled = null; }
-                var restore = function () {
-                    Lampa.Controller.toggle(enabled && enabled.name ? enabled.name : 'full_start');
-                    setTimeout(function () {
-                        try {
-                            if (btn && btn.length) Lampa.Controller.collectionFocus(btn[0], btn.parent());
-                        } catch (e1) {}
-                    }, 10);
-                };
-
-                var cardType = movie && (movie.name || movie.original_name) ? 'tv' : 'movie';
-                var jfId = '';
-                try { jfId = movie && movie.jellyfin_item_id ? String(movie.jellyfin_item_id) : ''; } catch (e2) { jfId = ''; }
-                if (!jfId) {
-                    try { jfId = Jellyfin.findJellyfinIdByTmdb(cardType, movie && movie.id ? movie.id : ''); } catch (e3) { jfId = ''; }
-                }
-
-                if (jfId) {
-                    var stopNoty = Jellyfin.delayedNoty('Jellyfin: открываю...', 450);
-                    Jellyfin.authenticate(function () {
-                        Jellyfin.getItemDetails(jfId, function (full) {
-                            Jellyfin.openPlayMenu(full || { Id: jfId, Name: movie.title || movie.name || 'Jellyfin' }, restore, null, stopNoty);
-                        });
-                    });
-                    return;
-                }
-
-                var title = movie.title || movie.name;
-                var year = (movie.release_date || movie.first_air_date || '').split('-')[0];
-                var stopSearchNoty = Jellyfin.delayedNoty('Jellyfin: Поиск...', 0);
-                Jellyfin.search(title, year, function (items) {
-                    try { stopSearchNoty(); } catch (e0) {}
-                    showSelection(items, restore);
-                });
-            });
-            var children = buttons.children();
-            if (children && children.length >= 1) {
-                btn.insertAfter(children.eq(0));
-            } else {
-                buttons.append(btn);
+            var cardType = movie && (movie.name || movie.original_name) ? 'tv' : 'movie';
+            var jfId = '';
+            try { jfId = movie && movie.jellyfin_item_id ? String(movie.jellyfin_item_id) : ''; } catch (e2) { jfId = ''; }
+            if (!jfId) {
+                try { jfId = Jellyfin.findJellyfinIdByTmdb(cardType, movie && movie.id ? movie.id : ''); } catch (e3) { jfId = ''; }
             }
-            if (Lampa.Controller.enabled().name === 'full_start') Lampa.Controller.toggle('full_start');
-        }
-        return true;
+
+            if (jfId) {
+                var stopNoty = Jellyfin.delayedNoty('Jellyfin: открываю...', 450);
+                Jellyfin.authenticate(function () {
+                    Jellyfin.getItemDetails(jfId, function (full) {
+                        Jellyfin.openPlayMenu(full || { Id: jfId, Name: movie.title || movie.name || 'Jellyfin' }, restore, null, stopNoty);
+                    });
+                });
+                return;
+            }
+
+            var title = movie.title || movie.name;
+            var year = (movie.release_date || movie.first_air_date || '').split('-')[0];
+            var stopSearchNoty = Jellyfin.delayedNoty('Jellyfin: Поиск...', 0);
+            Jellyfin.search(title, year, function (items) {
+                try { stopSearchNoty(); } catch (e0) {}
+                showSelection(items, restore);
+            });
+        });
     }
 
-    function ensureJellyfinButton(movie) {
-        if (!movie) return;
-        jellyfinBtnEnsureId++;
-        var id = jellyfinBtnEnsureId;
-        var attempt = function (n) {
-            if (id !== jellyfinBtnEnsureId) return;
-            try { addJellyfinButton(movie, n === 0); } catch (e0) {}
-            if (n < 10) setTimeout(function () { attempt(n + 1); }, 250);
-        };
-        attempt(0);
+    function addJellyfinButton(movie, render) {
+        if (!render || !render.find) return;
+        var buttons = render.find('.full-start-new__buttons');
+        if (!buttons || !buttons.length) buttons = render.find('.full-start__buttons');
+        if (!buttons || !buttons.length) return;
+
+        var existed = buttons.find('.button--jellyfin');
+        if (existed && existed.length) {
+            var btn_exist = existed.eq(0);
+            try { btn_exist.html(''); } catch (e0) {}
+            btn_exist.append($(getIcon()));
+            btn_exist.append($('<span>Jellyfin</span>'));
+            bindJellyfinButton(btn_exist, movie);
+            return;
+        }
+
+        var btn = $('<div class="full-start__button selector button--jellyfin"></div>');
+        btn.append($(getIcon()));
+        btn.append($('<span>Jellyfin</span>'));
+        bindJellyfinButton(btn, movie);
+
+        var options = buttons.find('.button--options');
+        if (options.length) {
+            var opt_el = options[0];
+            if (opt_el && opt_el.parentNode) opt_el.parentNode.insertBefore(btn[0] || btn, opt_el);
+            else buttons.append(btn);
+        } else {
+            var children = buttons.children();
+            if (children && children.length >= 1) btn.insertAfter(children.eq(0));
+            else buttons.append(btn);
+        }
+        if (Lampa.Controller.enabled().name === 'full_start') Lampa.Controller.toggle('full_start');
     }
 
     if (!document.getElementById('jellyfin-button-styles')) {
@@ -4238,10 +4241,13 @@
             }
         });
         Lampa.Listener.follow('full', function (e) {
-            if (e.type === 'complite' || e.type === 'build') {
-                var movie = e.data.movie || e.object;
-                if (movie) ensureJellyfinButton(movie);
-            }
+            if (e.type !== 'complite') return;
+            if (!e.object || !e.object.activity) return;
+            var movie = (e.data && e.data.movie) ? e.data.movie : (e.object.card || e.object.movie || e.object);
+            if (!movie) return;
+            var render = e.object.activity.render();
+            if (!render || !render.find) return;
+            addJellyfinButton(movie, render);
         });
 
         addJellyfinFoldersUi();
