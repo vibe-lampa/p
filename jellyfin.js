@@ -3539,6 +3539,7 @@
         var buttons = render.find('.full-start-new__buttons');
         if (!buttons || !buttons.length) buttons = render.find('.full-start__buttons');
         if (!buttons || !buttons.length) return;
+        var playBtn = buttons.find('.button--play');
 
         var existed = buttons.find('.button--jellyfin');
         if (existed && existed.length) {
@@ -3547,6 +3548,7 @@
             btn_exist.append($(getIcon()));
             btn_exist.append($('<span>Jellyfin</span>'));
             bindJellyfinButton(btn_exist, movie);
+            if (playBtn && playBtn.length) btn_exist.insertAfter(playBtn.eq(0));
             return;
         }
 
@@ -3555,15 +3557,19 @@
         btn.append($('<span>Jellyfin</span>'));
         bindJellyfinButton(btn, movie);
 
-        var options = buttons.find('.button--options');
-        if (options.length) {
-            var opt_el = options[0];
-            if (opt_el && opt_el.parentNode) opt_el.parentNode.insertBefore(btn[0] || btn, opt_el);
-            else buttons.append(btn);
+        if (playBtn && playBtn.length) {
+            btn.insertAfter(playBtn.eq(0));
         } else {
-            var children = buttons.children();
-            if (children && children.length >= 1) btn.insertAfter(children.eq(0));
-            else buttons.append(btn);
+            var options = buttons.find('.button--options');
+            if (options.length) {
+                var opt_el = options[0];
+                if (opt_el && opt_el.parentNode) opt_el.parentNode.insertBefore(btn[0] || btn, opt_el);
+                else buttons.append(btn);
+            } else {
+                var children = buttons.children();
+                if (children && children.length >= 1) btn.insertAfter(children.eq(0));
+                else buttons.append(btn);
+            }
         }
         if (Lampa.Controller.enabled().name === 'full_start') Lampa.Controller.toggle('full_start');
     }
