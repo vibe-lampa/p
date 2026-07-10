@@ -3493,9 +3493,15 @@
         });
     }
 
-    function addJellyfinButton(movie) {
+    var jellyfinBtnEnsureId = 0;
+
+    function addJellyfinButton(movie, force) {
         var buttons = $('.full-start-new__buttons, .full-start__buttons');
-        if (buttons.length && !buttons.find('.button--jellyfin').length) {
+        if (!buttons.length) return false;
+        if (force) {
+            try { $('.button--jellyfin').remove(); } catch (e0) {}
+        }
+        if (!buttons.find('.button--jellyfin').length) {
             var btn = $('<div class="full-start__button selector button--jellyfin"></div>');
             btn.append($(getIcon()));
             btn.append($('<span>Jellyfin</span>'));
@@ -3544,6 +3550,19 @@
             }
             if (Lampa.Controller.enabled().name === 'full_start') Lampa.Controller.toggle('full_start');
         }
+        return true;
+    }
+
+    function ensureJellyfinButton(movie) {
+        if (!movie) return;
+        jellyfinBtnEnsureId++;
+        var id = jellyfinBtnEnsureId;
+        var attempt = function (n) {
+            if (id !== jellyfinBtnEnsureId) return;
+            try { addJellyfinButton(movie, n === 0); } catch (e0) {}
+            if (n < 10) setTimeout(function () { attempt(n + 1); }, 250);
+        };
+        attempt(0);
     }
 
     if (!document.getElementById('jellyfin-button-styles')) {
@@ -4221,7 +4240,7 @@
         Lampa.Listener.follow('full', function (e) {
             if (e.type === 'complite' || e.type === 'build') {
                 var movie = e.data.movie || e.object;
-                if (movie) setTimeout(function() { addJellyfinButton(movie); }, 200);
+                if (movie) ensureJellyfinButton(movie);
             }
         });
 
