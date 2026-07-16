@@ -1867,9 +1867,9 @@
         getLineDefs: function (callback) {
             var fallbackDefs = function () {
                 return [
-                    { key: 'jellyfin://latest?type=movie', title: 'Последние фильмы', mode: 'latest', media: 'movie', parentId: '' },
-                    { key: 'jellyfin://latest?type=tv', title: 'Последние сериалы', mode: 'latest', media: 'tv', parentId: '' },
-                    { key: 'jellyfin://premiere?type=movie', title: 'Новинки (фильмы)', mode: 'premiere', media: 'movie', parentId: '' }
+                    { key: 'jellyfin://latest?type=movie&parentId=', title: 'Последние фильмы', mode: 'latest', media: 'movie', parentId: '' },
+                    { key: 'jellyfin://latest?type=tv&parentId=', title: 'Последние сериалы', mode: 'latest', media: 'tv', parentId: '' },
+                    { key: 'jellyfin://premiere?type=movie&parentId=', title: 'Новинки (фильмы)', mode: 'premiere', media: 'movie', parentId: '' }
                 ];
             };
 
@@ -4428,9 +4428,7 @@
         return '' +
             '.jf-exist-badge{position:absolute;left:' + left + ';right:' + right + ';top:' + top + ';bottom:' + bottom + ';z-index:6;width:1.7em;height:1.7em;border-radius:50%;' +
             'display:flex;align-items:center;justify-content:center;background:rgba(20,20,24,.72);' +
-            'box-shadow:0 2px 6px rgba(0,0,0,.4);pointer-events:auto;cursor:pointer;backdrop-filter:blur(4px)}' +
-            '.jf-exist-badge.focus{background:rgba(255,255,255,.92);box-shadow:0 0 0 .22em #fff,0 2px 10px rgba(0,0,0,.45)}' +
-            '.jf-exist-badge.focus svg{filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))}' +
+            'box-shadow:0 2px 6px rgba(0,0,0,.4);pointer-events:none;backdrop-filter:blur(4px)}' +
             '.jf-exist-badge svg{width:1.05em;height:1.05em;display:block}';
     }
 
@@ -4451,17 +4449,21 @@
             '.jf-ui-pos-editor{margin-top:.35em;padding:.75em .85em;border-radius:1em;background:linear-gradient(160deg,#1a2030 0%,#12161f 100%);border:1px solid rgba(255,255,255,.08)}' +
             '.jf-ui-pos-editor.focus{box-shadow:0 0 0 .18em rgba(255,255,255,.92)}' +
             '.jf-ui-pos-editor--active{border-color:rgba(90,200,250,.55);box-shadow:0 0 0 .18em rgba(90,200,250,.35),0 10px 24px rgba(0,0,0,.28)}' +
-            '.jf-ui-pos-editor__layout{display:flex;align-items:center;gap:.85em}' +
+            '.jf-ui-pos-editor__layout{display:flex;align-items:center}' +
             '.jf-ui-pos-editor__preview{position:relative;flex:0 0 4.6em;width:4.6em;height:6.4em;border-radius:.65em;overflow:hidden;background:linear-gradient(145deg,#3a4254 0%,#222833 100%);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}' +
             '.jf-ui-pos-editor__card{position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(0,0,0,.12))}' +
             '.jf-ui-pos-editor__dot{position:absolute;width:.62em;height:.62em;margin:-.31em 0 0 -.31em;border-radius:50%;background:#5ac8fa;box-shadow:0 0 0 .14em rgba(90,200,250,.35),0 2px 8px rgba(0,0,0,.35)}' +
-            '.jf-ui-pos-editor__dpad{display:grid;grid-template-columns:repeat(3,2.15em);grid-template-rows:repeat(3,2.15em);gap:.28em;flex:0 0 auto}' +
-            '.jf-ui-pos-editor__chip{display:flex;align-items:center;justify-content:center;border-radius:.75em;font-size:.95em;font-weight:700;color:#eef1f6;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}' +
-            '.jf-ui-pos-editor__chip--mid{grid-column:2;grid-row:2;font-size:.72em;font-weight:600;opacity:.72}' +
-            '.jf-ui-pos-editor__chip--up{grid-column:2;grid-row:1}' +
-            '.jf-ui-pos-editor__chip--left{grid-column:1;grid-row:2}' +
-            '.jf-ui-pos-editor__chip--right{grid-column:3;grid-row:2}' +
-            '.jf-ui-pos-editor__chip--down{grid-column:2;grid-row:3}' +
+            /* CSS Grid isn't supported at all on old Chromium (e.g. v38 found on many TV boxes),
+               so the dpad used to render as one unstyled column. Absolute positioning inside a
+               fixed-size relative box gives the same 3x3 layout on every engine. Cell size 2.15em,
+               gap 0.28em -> col/row offsets: 0, 2.43em, 4.86em; total box 7.01em square. */
+            '.jf-ui-pos-editor__dpad{position:relative;width:7.01em;height:7.01em;margin-left:.85em;flex:0 0 auto}' +
+            '.jf-ui-pos-editor__chip{position:absolute;width:2.15em;height:2.15em;display:flex;align-items:center;justify-content:center;border-radius:.75em;font-size:.95em;font-weight:700;color:#eef1f6;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}' +
+            '.jf-ui-pos-editor__chip--mid{left:2.43em;top:2.43em;font-size:.72em;font-weight:600;opacity:.72}' +
+            '.jf-ui-pos-editor__chip--up{left:2.43em;top:0}' +
+            '.jf-ui-pos-editor__chip--left{left:0;top:2.43em}' +
+            '.jf-ui-pos-editor__chip--right{left:4.86em;top:2.43em}' +
+            '.jf-ui-pos-editor__chip--down{left:2.43em;top:4.86em}' +
             '.jf-ui-pos-editor--active .jf-ui-pos-editor__chip{background:rgba(90,200,250,.14)}' +
             '.jf-ui-pos-editor--active .jf-ui-pos-editor__chip--mid{background:rgba(90,200,250,.28);opacity:1}' +
             '.jf-ui-pos-editor__status{margin-top:.55em;font-size:.92em;font-weight:600}' +
@@ -4493,31 +4495,12 @@
             var $view = $card.find('.card__view').first();
             if (!$view.length) return;
             try { el.jellyfin_badge_jfid = String(jfId || ''); } catch (eJ0) { el.jellyfin_badge_jfid = ''; }
-            $view.append('<div class="jf-exist-badge selector" tabindex="-1" title="Есть на сервере Jellyfin">' + getIcon() + '</div>');
-            try {
-                var $badge = $view.find('.jf-exist-badge').last();
-                if ($badge && $badge.length) {
-                    $badge.off('click.jf_badge');
-                    $badge.on('click.jf_badge', function (e) {
-                        try { if (e && e.stopImmediatePropagation) e.stopImmediatePropagation(); } catch (e0) {}
-                        try { if (e && e.preventDefault) e.preventDefault(); } catch (e1) {}
-                        try { jfOpenById(el.jellyfin_badge_jfid); } catch (e2) {}
-                    });
-                    $badge.off('hover:enter.jf_badge');
-                    $badge.on('hover:enter.jf_badge', function (e) {
-                        try { if (e && e.stopImmediatePropagation) e.stopImmediatePropagation(); } catch (e0) {}
-                        try { jfOpenById(el.jellyfin_badge_jfid); } catch (e2) {}
-                    });
-                    $badge.off('hover:focus.jf_badge');
-                    $badge.on('hover:focus.jf_badge', function () {
-                        try { $badge.addClass('focus'); } catch (e0) {}
-                    });
-                    $badge.off('hover:blur.jf_badge');
-                    $badge.on('hover:blur.jf_badge', function () {
-                        try { $badge.removeClass('focus'); } catch (e0) {}
-                    });
-                }
-            } catch (eB0) {}
+            // Non-interactive: this is a status badge, not a control. It must not be
+            // part of the remote-control navigation grid (no "selector" class, no
+            // tabindex) and must not react to click/hover:enter - otherwise the
+            // remote could "land" on it and hijack OK the same way it would on a
+            // real focusable card element.
+            $view.append('<div class="jf-exist-badge" title="Есть на сервере Jellyfin">' + getIcon() + '</div>');
         } catch (e0) {}
     }
 
@@ -4912,11 +4895,11 @@
                     title: 'Иконка Jellyfin',
                     items: [
                         {
-                            title: '<div style="display:flex;align-items:center;gap:.6em;line-height:1.2"><svg style="width:1.4em;height:1.4em;flex-shrink:0;display:block" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="jf_sel_g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#AA5CC3"/><stop offset="100%" stop-color="#00A4DC"/></linearGradient></defs><path fill="url(#jf_sel_g)" d="M12 .002C8.826.002-1.398 18.537.16 21.666c1.56 3.129 22.14 3.094 23.682 0C25.384 18.573 15.177 0 12 0zm7.76 18.949c-1.008 2.028-14.493 2.05-15.514 0C3.224 16.9 9.92 4.755 12.003 4.755c2.081 0 8.77 12.166 7.759 14.196zM12 9.198c-1.054 0-4.446 6.15-3.93 7.189.518 1.04 7.348 1.027 7.86 0 .511-1.027-2.874-7.19-3.93-7.19z"/></svg>Градиент</div>',
+                            title: '<div style="display:flex;align-items:center;line-height:1.2"><svg style="width:1.4em;height:1.4em;margin-right:.6em;flex-shrink:0;display:block" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="jf_sel_g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#AA5CC3"/><stop offset="100%" stop-color="#00A4DC"/></linearGradient></defs><path fill="url(#jf_sel_g)" d="M12 .002C8.826.002-1.398 18.537.16 21.666c1.56 3.129 22.14 3.094 23.682 0C25.384 18.573 15.177 0 12 0zm7.76 18.949c-1.008 2.028-14.493 2.05-15.514 0C3.224 16.9 9.92 4.755 12.003 4.755c2.081 0 8.77 12.166 7.759 14.196zM12 9.198c-1.054 0-4.446 6.15-3.93 7.189.518 1.04 7.348 1.027 7.86 0 .511-1.027-2.874-7.19-3.93-7.19z"/></svg>Градиент</div>',
                             val: 'gradient'
                         },
                         {
-                            title: '<div style="display:flex;align-items:center;gap:.6em;line-height:1.2"><svg style="width:1.4em;height:1.4em;flex-shrink:0;display:block" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="#ffffff" d="M12 .002C8.826.002-1.398 18.537.16 21.666c1.56 3.129 22.14 3.094 23.682 0C25.384 18.573 15.177 0 12 0zm7.76 18.949c-1.008 2.028-14.493 2.05-15.514 0C3.224 16.9 9.92 4.755 12.003 4.755c2.081 0 8.77 12.166 7.759 14.196zM12 9.198c-1.054 0-4.446 6.15-3.93 7.189.518 1.04 7.348 1.027 7.86 0 .511-1.027-2.874-7.19-3.93-7.19z"/></svg>Белый</div>',
+                            title: '<div style="display:flex;align-items:center;line-height:1.2"><svg style="width:1.4em;height:1.4em;margin-right:.6em;flex-shrink:0;display:block" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="#ffffff" d="M12 .002C8.826.002-1.398 18.537.16 21.666c1.56 3.129 22.14 3.094 23.682 0C25.384 18.573 15.177 0 12 0zm7.76 18.949c-1.008 2.028-14.493 2.05-15.514 0C3.224 16.9 9.92 4.755 12.003 4.755c2.081 0 8.77 12.166 7.759 14.196zM12 9.198c-1.054 0-4.446 6.15-3.93 7.189.518 1.04 7.348 1.027 7.86 0 .511-1.027-2.874-7.19-3.93-7.19z"/></svg>Белый</div>',
                             val: 'white'
                         }
                     ],
