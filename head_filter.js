@@ -163,7 +163,7 @@
 
 		// Classes that are pure UI/interaction state and must be stripped
 		// out before turning an element's class list into a stable id.
-		var STATE_CLASSES = ['selector', 'hide', 'hidden', 'focus', 'active', 'hover', 'traverse', 'hf--hidden'];
+		var STATE_CLASSES = ['selector', 'hide', 'hidden', 'focus', 'active', 'hover', 'traverse'];
 
 		// Known, "official" icons this plugin has always understood — kept
 		// so their labels stay nicely translated instead of falling back
@@ -363,24 +363,6 @@
 						return item.id === id;
 					});
 				});
-
-				// Compare against the *current* DOM order of these same
-				// items. If nothing actually needs to move, skip touching
-				// the DOM entirely — appendTo() always detaches/reattaches
-				// the node even when it's already in the right place, which
-				// fires the MutationObserver in observe(), which schedules
-				// another sync, which calls order() again... an endless
-				// reorder loop that visibly flickers/pulses whatever icon
-				// currently has focus.
-				var current = group.items
-					.slice()
-					.sort(function (a, b) {
-						return a.el.index() - b.el.index();
-					})
-					.map(function (item) { return item.id; });
-
-				if (ordered.join(',') === current.join(',')) return;
-
 				var byId = {};
 				group.items.forEach(function (item) {
 					byId[item.id] = item.el;
@@ -392,10 +374,20 @@
 			});
 		}
 
+		// Same show()/hide() approach the old plugin used, just driven off
+		// the discovered item list instead of a fixed selector dictionary.
+		function showHideElement($el, show) {
+			if (show) {
+				$el.show();
+			} else {
+				$el.hide();
+			}
+		}
+
 		function hide(items) {
 			var hidden = Lampa.Storage.get(STORAGE_HIDE, []);
 			items.forEach(function (item) {
-				item.el.toggleClass('hf--hidden', hidden.indexOf(item.id) !== -1);
+				showHideElement(item.el, hidden.indexOf(item.id) === -1);
 			});
 		}
 
@@ -414,7 +406,6 @@
 			var style = document.createElement('style');
 			style.id = 'head-filter-style';
 			style.innerHTML =
-				'.hf--hidden { display: none !important; }' +
 				'.menu-edit-list__item { display: flex !important; align-items: center !important; }' +
 				'.menu-edit-list__icon { flex: 0 0 auto !important; }' +
 				'.menu-edit-list__title { flex: 1 1 auto !important; min-width: 0 !important; ' +
@@ -436,9 +427,10 @@
 			hide(items);
 
 			var list = $('<div class="menu-edit-list"></div>');
+			var hiddenIds = Lampa.Storage.get(STORAGE_HIDE, []);
 
 			items.forEach(function (item) {
-				var isHidden = item.el.hasClass('hf--hidden');
+				var isHidden = hiddenIds.indexOf(item.id) !== -1;
 
 				var row = $(
 					'<div class="menu-edit-list__item">' +
@@ -525,31 +517,25 @@
 			syncTimer = setTimeout(function () {
 				var items = discover();
 
-				// fold any brand-new ids into the saved order so they show
-				// up (visible) without wiping out the user's existing
-				// arrangement. Important: a new id is inserted at the
-				// position it naturally occupies in the real DOM order
-				// (items is already in DOM order, see discover()), right
-				// after the last already-known id that precedes it —
-				// NOT pushed to the very end. Many plugins prepend their
-				// button so it lands on the left of the header; blindly
-				// pushing new ids to the end of `sort` would force every
-				// new icon to the right regardless of where it actually
-				// inserted itself.
 				var sort = Lampa.Storage.get(STORAGE_SORT, []);
-				var knownIds = {};
-				sort.forEach(function (id) { knownIds[id] = true; });
+				var firstRun = !sort.length;
 
-				var insertAt = 0;
-				items.forEach(function (item) {
-					if (knownIds[item.id]) {
-						insertAt = sort.indexOf(item.id) + 1;
-					} else {
-						sort.splice(insertAt, 0, item.id);
-						knownIds[item.id] = true;
-						insertAt++;
-					}
+				var newIds = items.map(function (item) {
+					return item.id;
+				}).filter(function (id) {
+					return sort.indexOf(id) === -1;
 				});
+
+				if (firstRun) {
+					// nothing saved yet at all — just seed with the natural
+					// DOM order, same as before
+					sort = sort.concat(newIds);
+				} else {
+					// icons that show up later (added by some other plugin
+					// after boot) go to the left of everything already there,
+					// instead of being appended to the right
+					sort = newIds.concat(sort);
+				}
 
 				Lampa.Storage.set(STORAGE_SORT, sort);
 
