@@ -1,9 +1,6 @@
 (function () {
 	'use strict';
 
-	// ---------------------------------------------------------------------
-	// Localization
-	// ---------------------------------------------------------------------
 	Lampa.Lang.add({
 		search: {
 			ru: 'Поиск',
@@ -125,51 +122,25 @@
 		};
 		Lampa.Manifest.plugins = manifest;
 
-		// -------------------------------------------------------------------
-		// Storage keys
-		// -------------------------------------------------------------------
-		// head_filter_sort -> flat array of icon ids, in the order the user
-		//                     wants them to appear (only compared within
-		//                     icons that actually share the same DOM parent,
-		//                     see order() below).
-		// head_filter_hide -> array of icon ids that should be hidden.
 		var STORAGE_SORT = 'head_filter_sort';
 		var STORAGE_HIDE = 'head_filter_hide';
 
-		// Snapshot of how things looked the very first time the plugin ever
-		// ran — used by the "reset" button to restore the native layout.
 		var STORAGE_DEFAULT_SORT = 'head_filter_default_sort';
 		var STORAGE_DEFAULT_HIDE = 'head_filter_default_hide';
 
-		// Container(s) that plugins normally append their head icons into.
-		// ".head__actions" is the official slot; some builds also render
-		// extra buttons straight into ".head__body". Both are scanned.
 		var CONTAINERS = ['.head__actions', '.head__body'];
 
-		// Elements that are structural / native and must never be listed as
-		// manageable "icons", even though they live inside one of the
-		// CONTAINERS above — the clock, the divider, status markers, etc.
 		var IGNORE_SELECTOR = '.head__logo-icon, .head__menu-icon, .head__title, .head__actions, ' +
 			'.head__markers, .head__time, .head__split';
 
-		// Heuristic filter for native navigation arrows (episode/page
-		// scroll controls some builds inject near the header) — these
-		// aren't "icons" a person would want to hide/reorder either.
 		var ARROW_PATTERN = /arrow/i;
 
 		function looksLikeNativeArrow($el) {
 			return ARROW_PATTERN.test($el.attr('class') || '');
 		}
 
-		// Classes that are pure UI/interaction state and must be stripped
-		// out before turning an element's class list into a stable id.
 		var STATE_CLASSES = ['selector', 'hide', 'hidden', 'focus', 'active', 'hover', 'traverse', 'hf--hidden'];
 
-		// Known, "official" icons this plugin has always understood — kept
-		// so their labels stay nicely translated instead of falling back
-		// to an auto-generated name. Anything not in this list is picked
-		// up automatically from the DOM. This is only used for naming —
-		// discovery order always follows the real DOM order (see discover()).
 		var KNOWN = {
 			'search': {name: Lampa.Lang.translate('search'), selector: '.open--search'},
 			'settings': {name: Lampa.Lang.translate('settings'), selector: '.open--settings'},
@@ -183,9 +154,6 @@
 			'blackfriday': {name: Lampa.Lang.translate('blackfriday'), selector: '.black-friday__button'}
 		};
 
-		// One-time migration from the old per-icon boolean settings
-		// (head_filter_show_search = true/false, etc.) so people upgrading
-		// don't lose their existing choices.
 		function migrateOldSettings() {
 			if (Lampa.Storage.get(STORAGE_SORT, null) !== null) return;
 
@@ -199,23 +167,14 @@
 			Lampa.Storage.set(STORAGE_HIDE, hide);
 		}
 
-		// Words that only describe the plugin's generic wrapper markup
-		// (every header icon has them) and carry no useful naming info.
 		var NAME_NOISE_WORDS = ['auto', 'head', 'action', 'item', 'icon', 'btn', 'button'];
 
-		// A couple of well-known abbreviations worth spelling out.
 		var NAME_ABBREVIATIONS = {'jf': 'Jellyfin'};
 
 		function titleCase(str) {
 			return str.replace(/\b\w/g, function (c) { return c.toUpperCase(); });
 		}
 
-		// Best-effort human name for an icon we don't otherwise recognize —
-		// tries the sprite reference plugins commonly use
-		// (<use xlink:href="#sprite-something">), then falls back to
-		// cleaning up the generated id itself. Not a real substitute for
-		// knowing which plugin/file added the icon (the DOM doesn't carry
-		// that), but far more readable than the raw auto-id.
 		function guessNameFrom($el, id) {
 			var spriteHref = $el.find('use').attr('xlink:href') || $el.find('use').attr('href');
 			var source = spriteHref ? spriteHref.replace('#sprite-', '') : id.replace(/^auto-/, '');
@@ -230,9 +189,6 @@
 			return cleaned ? titleCase(cleaned) : (Lampa.Lang.translate('head_filter_unknown_icon') + ' (' + id + ')');
 		}
 
-		// -------------------------------------------------------------------
-		// Discovery
-		// -------------------------------------------------------------------
 		function fingerprint($el) {
 			var cls = ($el.attr('class') || '').split(/\s+/).filter(function (c) {
 				return c && STATE_CLASSES.indexOf(c) === -1;
@@ -240,8 +196,6 @@
 			return 'auto-' + (cls.join('-') || $el.prop('tagName').toLowerCase());
 		}
 
-		// Looks up an element against the KNOWN dictionary, purely for a
-		// nice display name — never used to decide discovery order.
 		function knownIdFor($el) {
 			var found = null;
 			Object.keys(KNOWN).forEach(function (id) {
@@ -251,10 +205,6 @@
 			return found;
 		}
 
-		// Returns an array of {id, el, name, known} for every icon this
-		// plugin currently manages, in real DOM/document order — this is
-		// what makes "default position on load" behave correctly, since
-		// nothing here re-sequences items based on a fixed dictionary.
 		function discover() {
 			var result = [];
 			var seenNodes = [];
@@ -296,9 +246,6 @@
 			return result;
 		}
 
-		// Records the native, out-of-the-box layout the very first time the
-		// plugin runs (before any customization exists), so "reset" always
-		// has a real default to restore rather than a hardcoded guess.
 		function captureDefaultsIfNeeded(items) {
 			if (Lampa.Storage.get(STORAGE_DEFAULT_SORT, null) !== null) return;
 
@@ -328,13 +275,6 @@
 			} catch (e) {}
 		}
 
-		// -------------------------------------------------------------------
-		// Apply saved order / visibility to the real header
-		// -------------------------------------------------------------------
-		// Icons are only reordered relative to siblings that share the same
-		// DOM parent — this lets the icon row itself be freely rearranged
-		// without dragging structural pieces (clock, divider) out of the
-		// slot the app's own layout expects them in.
 		function order(items) {
 			var sort = Lampa.Storage.get(STORAGE_SORT, []);
 			if (!sort.length) return;
@@ -388,9 +328,6 @@
 			hide(items);
 		}
 
-		// -------------------------------------------------------------------
-		// CSS for the hidden state
-		// -------------------------------------------------------------------
 		function injectStyle() {
 			if (document.getElementById('head-filter-style')) return;
 			var style = document.createElement('style');
@@ -406,11 +343,6 @@
 			document.head.appendChild(style);
 		}
 
-		// -------------------------------------------------------------------
-		// Editor UI — same look & interaction pattern as Lampa's built-in
-		// menu editor, but with left/right move arrows since the header is
-		// a horizontal row instead of a vertical list.
-		// -------------------------------------------------------------------
 		function openEditor() {
 			var items = discover();
 			captureDefaultsIfNeeded(items);
@@ -497,9 +429,6 @@
 			});
 		}
 
-		// -------------------------------------------------------------------
-		// Watch for icons plugins add/remove after startup
-		// -------------------------------------------------------------------
 		var syncTimer;
 
 		function scheduleSync() {
@@ -507,14 +436,28 @@
 			syncTimer = setTimeout(function () {
 				var items = discover();
 
-				// fold any brand-new ids into the saved order so they show
-				// up (visible, appended at the end) without wiping out the
-				// user's existing arrangement
 				var sort = Lampa.Storage.get(STORAGE_SORT, []);
+
+				var defaultSort = Lampa.Storage.get(STORAGE_DEFAULT_SORT, []);
+				var defaultHide = Lampa.Storage.get(STORAGE_DEFAULT_HIDE, []);
+				var defaultChanged = false;
+
 				items.forEach(function (item) {
 					if (sort.indexOf(item.id) === -1) sort.push(item.id);
+
+					if (defaultSort.indexOf(item.id) === -1) {
+						defaultSort.push(item.id);
+						if (item.el.hasClass('hide') || item.el.css('display') === 'none') defaultHide.push(item.id);
+						defaultChanged = true;
+					}
 				});
+
 				Lampa.Storage.set(STORAGE_SORT, sort);
+
+				if (defaultChanged) {
+					Lampa.Storage.set(STORAGE_DEFAULT_SORT, defaultSort);
+					Lampa.Storage.set(STORAGE_DEFAULT_HIDE, defaultHide);
+				}
 
 				order(items);
 				hide(items);
@@ -533,9 +476,6 @@
 			});
 		}
 
-		// -------------------------------------------------------------------
-		// Settings entry point
-		// -------------------------------------------------------------------
 		Lampa.Template.add('settings_head_filter', '<div></div>');
 
 		Lampa.SettingsApi.addParam({
@@ -592,9 +532,6 @@
 			}
 		});
 
-		// -------------------------------------------------------------------
-		// Boot
-		// -------------------------------------------------------------------
 		migrateOldSettings();
 		injectStyle();
 
