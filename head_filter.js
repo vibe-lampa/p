@@ -564,7 +564,12 @@
 		function showHideElement($el, show) {
 			if (show) {
 				try {
-					if ($el.attr('data-hf-hidden') == '1') {
+					if ($el.is(KNOWN.broadcast.selector)) {
+						if ($el.attr('data-hf-hidden') == '1') {
+							$el.attr('data-hf-hidden', null);
+							$el.show();
+						}
+					} else {
 						$el.attr('data-hf-hidden', null);
 						$el.show();
 					}
