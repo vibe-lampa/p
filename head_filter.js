@@ -246,19 +246,23 @@
 			return result;
 		}
 
-		function captureDefaultsIfNeeded(items) {
-			if (Lampa.Storage.get(STORAGE_DEFAULT_SORT, null) !== null) return;
-
-			var sort = [];
-			var hidden = [];
+		function mergeDefaults(items) {
+			var sort = Lampa.Storage.get(STORAGE_DEFAULT_SORT, []);
+			var hidden = Lampa.Storage.get(STORAGE_DEFAULT_HIDE, []);
+			var changed = false;
 
 			items.forEach(function (item) {
-				sort.push(item.id);
-				if (item.el.hasClass('hide') || item.el.css('display') === 'none') hidden.push(item.id);
+				if (sort.indexOf(item.id) === -1) {
+					sort.push(item.id);
+					if (item.el.hasClass('hide') || item.el.css('display') === 'none') hidden.push(item.id);
+					changed = true;
+				}
 			});
 
-			Lampa.Storage.set(STORAGE_DEFAULT_SORT, sort);
-			Lampa.Storage.set(STORAGE_DEFAULT_HIDE, hidden);
+			if (changed) {
+				Lampa.Storage.set(STORAGE_DEFAULT_SORT, sort);
+				Lampa.Storage.set(STORAGE_DEFAULT_HIDE, hidden);
+			}
 		}
 
 		function resetToDefaults() {
@@ -323,7 +327,7 @@
 
 		function apply() {
 			var items = discover();
-			captureDefaultsIfNeeded(items);
+			mergeDefaults(items);
 			order(items);
 			hide(items);
 		}
@@ -345,7 +349,7 @@
 
 		function openEditor() {
 			var items = discover();
-			captureDefaultsIfNeeded(items);
+			mergeDefaults(items);
 			order(items);
 			hide(items);
 
@@ -437,28 +441,12 @@
 				var items = discover();
 
 				var sort = Lampa.Storage.get(STORAGE_SORT, []);
-
-				var defaultSort = Lampa.Storage.get(STORAGE_DEFAULT_SORT, []);
-				var defaultHide = Lampa.Storage.get(STORAGE_DEFAULT_HIDE, []);
-				var defaultChanged = false;
-
 				items.forEach(function (item) {
 					if (sort.indexOf(item.id) === -1) sort.push(item.id);
-
-					if (defaultSort.indexOf(item.id) === -1) {
-						defaultSort.push(item.id);
-						if (item.el.hasClass('hide') || item.el.css('display') === 'none') defaultHide.push(item.id);
-						defaultChanged = true;
-					}
 				});
-
 				Lampa.Storage.set(STORAGE_SORT, sort);
 
-				if (defaultChanged) {
-					Lampa.Storage.set(STORAGE_DEFAULT_SORT, defaultSort);
-					Lampa.Storage.set(STORAGE_DEFAULT_HIDE, defaultHide);
-				}
-
+				mergeDefaults(items);
 				order(items);
 				hide(items);
 			}, 400);
