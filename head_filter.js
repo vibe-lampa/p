@@ -112,6 +112,12 @@
 			en: 'Icon positions have been reset',
 			uk: 'Позиції іконок скинуто',
 			zh: '图标位置已重置'
+		},
+		back: {
+			ru: 'Назад',
+			en: 'Back',
+			uk: 'Назад',
+			zh: '返回'
 		}
 	});
 
@@ -167,6 +173,7 @@
 		// up automatically from the DOM. This is only used for naming —
 		// discovery order always follows the real DOM order (see discover()).
 		var KNOWN = {
+			'back': {name: Lampa.Lang.translate('back'), selector: '.head__backward'},
 			'search': {name: Lampa.Lang.translate('search'), selector: '.open--search'},
 			'settings': {name: Lampa.Lang.translate('settings'), selector: '.open--settings'},
 			'premium': {name: Lampa.Lang.translate('premium'), selector: '.open--premium'},
@@ -305,6 +312,14 @@
 					dynamic[id] = true;
 				});
 			}
+			var removedKnown = false;
+			Object.keys(KNOWN).forEach(function (id) {
+				if (dynamic[id]) {
+					delete dynamic[id];
+					removedKnown = true;
+				}
+			});
+			if (removedKnown) persistDynamic();
 			return dynamic;
 		}
 
@@ -346,12 +361,14 @@
 
 			if (now >= warmupUntil) {
 				Object.keys(dynamicState).forEach(function (id) {
+					if (KNOWN[id]) return;
 					if (ids.indexOf(id) === -1) dynamicState[id].missing = true;
 				});
 			}
 
 			items.forEach(function (item) {
 				var id = item.id;
+				if (item.known) return;
 				if (!dynamicState[id]) dynamicState[id] = {visible: false, hidden: false, missing: false};
 
 				var el = item.el && item.el.get ? item.el.get(0) : null;
@@ -360,16 +377,57 @@
 			});
 
 			var changed = false;
+			var newDynamic = [];
 			Object.keys(dynamicState).forEach(function (id) {
 				if (dynamic[id]) return;
+				if (KNOWN[id]) return;
 				var st = dynamicState[id];
 				if (st.visible && (st.hidden || st.missing)) {
 					dynamic[id] = true;
+					newDynamic.push(id);
 					changed = true;
 				}
 			});
 
-			if (changed) persistDynamic();
+			if (changed) {
+				try {
+					var hide = Lampa.Storage.get(STORAGE_HIDE, []);
+					var sort = Lampa.Storage.get(STORAGE_SORT, []);
+					var changedHide = false;
+					var changedSort = false;
+
+					newDynamic.forEach(function (id) {
+						var hi = hide.indexOf(id);
+						if (hi !== -1) {
+							hide.splice(hi, 1);
+							changedHide = true;
+						}
+						var si = sort.indexOf(id);
+						if (si !== -1) {
+							sort.splice(si, 1);
+							changedSort = true;
+						}
+					});
+
+					if (changedHide) Lampa.Storage.set(STORAGE_HIDE, hide);
+					if (changedSort) Lampa.Storage.set(STORAGE_SORT, sort);
+				} catch (e) {}
+
+				newDynamic.forEach(function (id) {
+					for (var i = 0; i < items.length; i++) {
+						if (items[i].id !== id) continue;
+						try {
+							if (items[i].el && items[i].el.attr && items[i].el.attr('data-hf-hidden') == '1') {
+								items[i].el.attr('data-hf-hidden', null);
+								items[i].el.show();
+							}
+						} catch (e) {}
+						break;
+					}
+				});
+
+				persistDynamic();
+			}
 		}
 
 		function discoverStable() {
@@ -505,8 +563,10 @@
 		// the discovered item list instead of a fixed selector dictionary.
 		function showHideElement($el, show) {
 			if (show) {
+				try { $el.attr('data-hf-hidden', null); } catch (e) {}
 				$el.show();
 			} else {
+				try { $el.attr('data-hf-hidden', '1'); } catch (e) {}
 				$el.hide();
 			}
 		}
