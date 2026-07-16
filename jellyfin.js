@@ -5,16 +5,75 @@
     var JELLYFIN_USER = '';
     var JELLYFIN_PASS = '';
 
-    var JELLYFIN_ICON_GRADIENT = '<svg class="jf-icon jf-icon--gradient" width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><defs><linearGradient id="jf_grad_g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#AA5CC3"/><stop offset="100%" stop-color="#00A4DC"/></linearGradient></defs><path style="fill:url(#jf_grad_g)" d="M12 .002C8.826.002-1.398 18.537.16 21.666c1.56 3.129 22.14 3.094 23.682 0C25.384 18.573 15.177 0 12 0zm7.76 18.949c-1.008 2.028-14.493 2.05-15.514 0C3.224 16.9 9.92 4.755 12.003 4.755c2.081 0 8.77 12.166 7.759 14.196zM12 9.198c-1.054 0-4.446 6.15-3.93 7.189.518 1.04 7.348 1.027 7.86 0 .511-1.027-2.874-7.19-3.93-7.19z"/></svg>';
+    // NOTE: the gradient id below is a TEMPLATE placeholder ("__GID__") that gets replaced
+    // with a fresh unique id on every getIcon() call. Previously this was a hardcoded
+    // id="jf_grad_g" baked into every single icon instance (menu item, settings icon,
+    // buttons, etc). SVG ids must be unique per-document; with several icon copies sharing
+    // the same id, the browser resolves url(#jf_grad_g) against whichever element with that
+    // id happens to still be in the DOM. As soon as the *first* inserted copy is removed
+    // (e.g. leaving the settings screen, or Lampa re-rendering the menu), every remaining
+    // icon that referenced that shared gradient loses its fill target and falls back to
+    // black - this is the "icon gets stuck black in the side menu" bug. Giving each
+    // rendered icon its own unique gradient id fixes it permanently.
+    var JELLYFIN_ICON_GRADIENT_TPL = '<svg class="jf-icon jf-icon--gradient" width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><defs><linearGradient id="__GID__" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#AA5CC3"/><stop offset="100%" stop-color="#00A4DC"/></linearGradient></defs><path style="fill:url(#__GID__)" d="M12 .002C8.826.002-1.398 18.537.16 21.666c1.56 3.129 22.14 3.094 23.682 0C25.384 18.573 15.177 0 12 0zm7.76 18.949c-1.008 2.028-14.493 2.05-15.514 0C3.224 16.9 9.92 4.755 12.003 4.755c2.081 0 8.77 12.166 7.759 14.196zM12 9.198c-1.054 0-4.446 6.15-3.93 7.189.518 1.04 7.348 1.027 7.86 0 .511-1.027-2.874-7.19-3.93-7.19z"/></svg>';
     var JELLYFIN_ICON_WHITE = '<svg class="jf-icon jf-icon--white" width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 .002C8.826.002-1.398 18.537.16 21.666c1.56 3.129 22.14 3.094 23.682 0C25.384 18.573 15.177 0 12 0zm7.76 18.949c-1.008 2.028-14.493 2.05-15.514 0C3.224 16.9 9.92 4.755 12.003 4.755c2.081 0 8.77 12.166 7.759 14.196zM12 9.198c-1.054 0-4.446 6.15-3.93 7.189.518 1.04 7.348 1.027 7.86 0 .511-1.027-2.874-7.19-3.93-7.19z"/></svg>';
 
-    function getIcon() {
-        try {
-            return Lampa.Storage.get('jellyfin_icon_style', 'gradient') === 'white' ? JELLYFIN_ICON_WHITE : JELLYFIN_ICON_GRADIENT;
-        } catch(e) { return JELLYFIN_ICON_GRADIENT; }
+    var _jfIconGidSeq = 0;
+    function _jfNextGid() {
+        _jfIconGidSeq += 1;
+        return 'jf_grad_g_' + Date.now().toString(36) + '_' + _jfIconGidSeq;
     }
 
-    var JELLYFIN_ICON = JELLYFIN_ICON_GRADIENT;
+    // Returns a FRESH svg string every call (own unique gradient id), safe to insert
+    // into the DOM any number of times simultaneously (menu, head bar, settings, badges...).
+    function getIcon() {
+        try {
+            if (Lampa.Storage.get('jellyfin_icon_style', 'gradient') === 'white') return JELLYFIN_ICON_WHITE;
+            return JELLYFIN_ICON_GRADIENT_TPL.split('__GID__').join(_jfNextGid());
+        } catch(e) {
+            return JELLYFIN_ICON_GRADIENT_TPL.split('__GID__').join(_jfNextGid());
+        }
+    }
+
+    var JELLYFIN_ICON = JELLYFIN_ICON_GRADIENT_TPL.split('__GID__').join('jf_grad_g_static');
+
+    // ============== Top bar (head) icon ==============
+    var _jfHeadIcon = null;
+
+    function jfOpenMain() {
+        Lampa.Activity.push({
+            component: Jellyfin._componentsRegistered ? 'jellyfin_main' : 'category',
+            title: 'Jellyfin',
+            url: 'jellyfin://main',
+            page: 1,
+            source: 'tmdb'
+        });
+    }
+
+    function jfHeadIconEnabled() {
+        try { return Lampa.Storage.get('jellyfin_head_icon', true) !== false; } catch (e) { return true; }
+    }
+
+    function jfSyncHeadIcon() {
+        if (!_jfHeadIcon || !_jfHeadIcon.length) return;
+        _jfHeadIcon.toggleClass('hide', !jfHeadIconEnabled());
+    }
+
+    function jfInjectHeadIcon() {
+        try {
+            if (!Lampa.Head || typeof Lampa.Head.addIcon !== 'function') return;
+            if (_jfHeadIcon && _jfHeadIcon.length) { jfSyncHeadIcon(); return; }
+            var $icon = Lampa.Head.addIcon(getIcon());
+            $icon.addClass('jf-head-icon selector');
+            $icon.on('hover:enter', jfOpenMain);
+            _jfHeadIcon = $icon;
+            jfSyncHeadIcon();
+        } catch (e0) {}
+    }
+
+    function jfRefreshHeadIconStyle() {
+        try { if (_jfHeadIcon && _jfHeadIcon.length) _jfHeadIcon.html(getIcon()); } catch (e0) {}
+    }
 
     function sget(key, def) { return Lampa.Storage.get(key, def); }
     function sset(key, val) { Lampa.Storage.set(key, val); }
@@ -266,6 +325,119 @@
             } catch (e0) {
                 return '';
             }
+        },
+
+        // Merge many [cardType, tmdbId, jellyfinId] triples into storage in one write,
+        // instead of one read+write per item (used by the full library index build).
+        rememberTmdbMappingsBulk: function (entries) {
+            try {
+                if (!entries || !entries.length) return;
+                var map = sget('jellyfin_tmdb_map', {});
+                if (!map || typeof map !== 'object') map = {};
+                for (var i = 0; i < entries.length; i++) {
+                    var e = entries[i];
+                    if (!e || !e[1] || !e[2]) continue;
+                    map[String(e[0] || 'movie') + ':' + String(e[1])] = String(e[2]);
+                }
+                sset('jellyfin_tmdb_map', map);
+            } catch (e0) {}
+        },
+
+        // Walks the whole Jellyfin library (Movies + Series) fetching only ProviderIds,
+        // to build/refresh the tmdb->jellyfin id map used for the "on server" poster badge.
+        // This lets the badge work for any TMDB card across the whole app (search results,
+        // catalog grids, etc.), not just items the user has already opened through Jellyfin.
+        _indexState: { building: false, builtAt: 0 },
+        buildTmdbIndex: function (opts, onDone) {
+            opts = opts || {};
+            var self = this;
+            if (self._indexState.building) { if (onDone) onDone(false); return; }
+            self._indexState.building = true;
+            // Safety net: authenticate() has no failure callback, so if auth silently
+            // bails out (e.g. missing credentials) make sure we don't get stuck "building" forever.
+            var safetyTimer = setTimeout(function () { self._indexState.building = false; }, 60000);
+
+            self.authenticate(function () {
+                clearTimeout(safetyTimer);
+                var server = String(sget('jellyfin_server', JELLYFIN_SERVER) || '').replace(/\/$/, '');
+                var token = String(self.token || '');
+                var uid = String(self.userId || '');
+                if (!server || !token || !uid) {
+                    self._indexState.building = false;
+                    if (onDone) onDone(false);
+                    return;
+                }
+
+                var kinds = [
+                    { type: 'Movie', cardType: 'movie' },
+                    { type: 'Series', cardType: 'tv' }
+                ];
+                var collected = [];
+                var totalFound = 0;
+
+                function fetchPage(kindIdx, startIndex) {
+                    if (kindIdx >= kinds.length) {
+                        self.rememberTmdbMappingsBulk(collected);
+                        self._indexState.building = false;
+                        self._indexState.builtAt = Date.now();
+                        try { sset('jellyfin_index_built_at', self._indexState.builtAt); } catch (e0) {}
+                        if (onDone) onDone(true, totalFound);
+                        return;
+                    }
+
+                    var kind = kinds[kindIdx];
+                    var limit = 300;
+                    var query = [
+                        'Recursive=true',
+                        'IncludeItemTypes=' + kind.type,
+                        'StartIndex=' + startIndex,
+                        'Limit=' + limit,
+                        'Fields=ProviderIds',
+                        'api_key=' + encodeURIComponent(token)
+                    ];
+                    var url = server + '/Users/' + encodeURIComponent(uid) + '/Items?' + query.join('&');
+
+                    self.request(url, 'GET', null, function (res) {
+                        var items = (res && (res.Items || res.items)) ? (res.Items || res.items) : [];
+                        var total = 0;
+                        try { total = parseInt(res.TotalRecordCount || res.totalRecordCount || 0, 10) || 0; } catch (eT) { total = 0; }
+
+                        for (var i = 0; i < items.length; i++) {
+                            var it = items[i];
+                            if (!it) continue;
+                            var providers = it.ProviderIds || it.Providerids || {};
+                            var tmdb = providers && (providers.Tmdb || providers.tmdb || providers.TMDb || '');
+                            if (tmdb && it.Id) { collected.push([kind.cardType, String(tmdb), String(it.Id)]); totalFound++; }
+                        }
+
+                        var next = startIndex + limit;
+                        if (next < total && items.length) {
+                            fetchPage(kindIdx, next);
+                        } else {
+                            fetchPage(kindIdx + 1, 0);
+                        }
+                    }, function () {
+                        // On failure just move to the next library rather than aborting entirely.
+                        fetchPage(kindIdx + 1, 0);
+                    });
+                }
+
+                fetchPage(0, 0);
+            });
+        },
+
+        // Builds the index automatically in the background, at most once per TTL,
+        // and only if the user is authenticated. Safe to call many times (no-ops otherwise).
+        ensureTmdbIndex: function (force) {
+            var self = this;
+            try {
+                if (!sget('jellyfin_token', '')) return;
+                if (self._indexState.building) return;
+                var builtAt = self._indexState.builtAt || parseInt(sget('jellyfin_index_built_at', 0), 10) || 0;
+                var ttl = 12 * 60 * 60 * 1000; // 12h
+                if (!force && builtAt && (Date.now() - builtAt) < ttl) return;
+                self.buildTmdbIndex({}, function () {});
+            } catch (e0) {}
         },
 
         getLinePrefs: function () {
@@ -2235,7 +2407,7 @@
                                 Lampa.Activity.push({
                                     url: 'jellyfin://browse?parentId=' + encodeURIComponent(parentId) + '&kind=media&title=' + encodeURIComponent(title),
                                     title: title,
-                                    component: (Jellyfin._componentsRegistered ? 'jellyfin_browse' : 'category'),
+                                    component: 'category_full',
                                     page: 1
                                 });
                             } catch (e4) {}
@@ -2559,7 +2731,7 @@
                                 Lampa.Activity.push({
                                     url: 'jellyfin://browse?parentId=' + encodeURIComponent(boxsetId) + '&kind=media&title=' + encodeURIComponent(card.title || card.name || ''),
                                     title: card.title || card.name || '',
-                                    component: Jellyfin._componentsRegistered ? 'jellyfin_browse' : 'category',
+                                    component: 'category_full',
                                     page: 1
                                 });
                                 return;
@@ -2578,7 +2750,7 @@
                                         Lampa.Activity.push({
                                             url: 'jellyfin://browse?parentId=' + encodeURIComponent(jfId) + '&kind=media&title=' + encodeURIComponent(full.Name || ''),
                                             title: full.Name || '',
-                                            component: Jellyfin._componentsRegistered ? 'jellyfin_browse' : 'category',
+                                            component: 'category_full',
                                             page: 1
                                         });
                                         return;
@@ -3641,7 +3813,7 @@
                 Lampa.Activity.push({
                     url: 'jellyfin://browse?parentId=' + encodeURIComponent(data.jellyfin_view_id || '') + '&kind=' + encodeURIComponent(data.kind || 'media') + '&title=' + encodeURIComponent(data.title || ''),
                     title: data.title || '',
-                    component: (Jellyfin._componentsRegistered ? 'jellyfin_browse' : 'category'),
+                        component: 'category_full',
                     page: 1
                 });
             });
@@ -3965,7 +4137,7 @@
                 Lampa.Activity.push({
                     url: 'jellyfin://browse?parentId=' + encodeURIComponent(data.jellyfin_boxset_id || '') + '&kind=media&title=' + encodeURIComponent(data.title || ''),
                     title: data.title || '',
-                    component: (Jellyfin._componentsRegistered ? 'jellyfin_browse' : 'category'),
+                        component: 'category_full',
                     page: 1
                 });
             });
@@ -3982,6 +4154,443 @@
         this.render = function (js) { return js ? this.item : $(this.item); };
     }
 
+    // ================= "On Jellyfin server" poster badge =================
+    // Shows a small Jellyfin icon on the corner of ordinary TMDB posters (search results,
+    // catalog grids, etc.) when that movie/show is already present on the Jellyfin server.
+    // Modeled after the same technique used by the mir-kino plugin (patch the Card module
+    // so we can read the card's tmdb id/type off the element, then look it up).
+
+    function jfBadgeEnabled() {
+        try { return Lampa.Storage.get('jellyfin_poster_badge', true) !== false; } catch (e) { return true; }
+    }
+
+    function jfCardMediaMethod(data) {
+        if (!data) return '';
+        if (data.method === 'tv' || data.method === 'movie') return data.method;
+        var mt = String(data.media_type || data.type || '').toLowerCase();
+        if (mt === 'tv' || mt === 'movie') return mt;
+        if (data.name || data.original_name || data.first_air_date) return 'tv';
+        if (data.title || data.release_date) return 'movie';
+        return '';
+    }
+
+    function jfCardMediaId(data) {
+        if (!data) return '';
+        return String(data.id || data.tmdb_id || data.tmdb || '');
+    }
+
+    function jfBindCardData(html, data) {
+        if (!html || !data) return;
+        try {
+            if (html.jquery) { html.card_data = data; if (html[0]) html[0].card_data = data; }
+            else if (html.nodeType === 1) html.card_data = data;
+        } catch (e0) {}
+    }
+
+    function jfCardDataFrom(cardEl) {
+        try {
+            var el = cardEl && cardEl.jquery ? cardEl[0] : cardEl;
+            if (el && el.card_data) return el.card_data;
+            if (el && el.mirkino_row) return el.mirkino_row; // reuse mir-kino's data if present
+        } catch (e0) {}
+        return null;
+    }
+
+    function jfOpenById(jfId) {
+        try {
+            var id = String(jfId || '');
+            if (!id) return;
+            Jellyfin.authenticate(function () {
+                Jellyfin.getItemDetails(id, function (full) {
+                    try { Jellyfin.openPlayMenu(full || { Id: id }, null, null); } catch (e0) {}
+                });
+            });
+        } catch (e0) {}
+    }
+
+    function jfBadgePos() {
+        try { return String(Lampa.Storage.get('jellyfin_badge_pos', 'tl') || 'tl'); } catch (e0) { return 'tl'; }
+    }
+
+    var JF_BADGE_OFFSET_STEP = 2;
+    var JF_BADGE_OFFSET_MIN = 0;
+    var JF_BADGE_OFFSET_MAX = 40;
+    var jfBadgeEditMode = '';
+    var jfBadgeKeyCaptureReady = false;
+
+    function jfClampBadgeOffset(value, fallback) {
+        var fb = fallback == null ? 0 : fallback;
+        var n = parseFloat(value);
+        if (isNaN(n)) n = fb;
+        n = Math.round(n / JF_BADGE_OFFSET_STEP) * JF_BADGE_OFFSET_STEP;
+        if (n < JF_BADGE_OFFSET_MIN) n = JF_BADGE_OFFSET_MIN;
+        if (n > JF_BADGE_OFFSET_MAX) n = JF_BADGE_OFFSET_MAX;
+        return n;
+    }
+
+    function jfNormalizeStoredBadgeOffset(raw, fallback) {
+        if (raw == null) return jfClampBadgeOffset(fallback, 0);
+        var str = String(raw || '').trim();
+        if (!str) return jfClampBadgeOffset(fallback, 0);
+        var n = parseFloat(str.replace(/[^\d.\-]/g, ''));
+        if (isNaN(n)) n = fallback;
+        return jfClampBadgeOffset(n, fallback);
+    }
+
+    function jfReadBadgeOffset(axis) {
+        var fallback = axis === 'x' ? 4 : 4;
+        var key = axis === 'x' ? 'jellyfin_badge_off_x' : 'jellyfin_badge_off_y';
+        var raw = '';
+        try { raw = Lampa.Storage.get(key, ''); } catch (e0) { raw = ''; }
+        if (raw) return jfNormalizeStoredBadgeOffset(raw, fallback);
+
+        var legacyKey = axis === 'x' ? 'jellyfin_badge_offset_x' : 'jellyfin_badge_offset_y';
+        var legacy = '';
+        try { legacy = Lampa.Storage.get(legacyKey, ''); } catch (e1) { legacy = ''; }
+        if (legacy !== '' && legacy != null) {
+            var em = parseFloat(String(legacy).replace(/[^\d.\-]/g, ''));
+            if (!isNaN(em) && isFinite(em)) {
+                var base = axis === 'x' ? 12.75 : (12.75 * 1.5);
+                var pct = (em / base) * 100;
+                var clamped = jfClampBadgeOffset(pct, fallback);
+                try { Lampa.Storage.set(key, String(clamped) + 'p'); } catch (e2) {}
+                return clamped;
+            }
+        }
+        return jfClampBadgeOffset(fallback, 0);
+    }
+
+    function jfWriteBadgeOffset(axis, value) {
+        var key = axis === 'x' ? 'jellyfin_badge_off_x' : 'jellyfin_badge_off_y';
+        var v = jfClampBadgeOffset(value, axis === 'x' ? 4 : 4);
+        try { Lampa.Storage.set(key, String(v) + 'p'); } catch (e0) {}
+        jfApplyBadgeCss();
+        jfRefreshBadgePosEditorVisuals();
+    }
+
+    function jfNudgeBadgeOffset(dx, dy) {
+        var anchor = jfBadgePos();
+        var nextX = jfReadBadgeOffset('x');
+        var nextY = jfReadBadgeOffset('y');
+        if (dx) {
+            if (anchor.indexOf('r') >= 0) nextX -= dx;
+            else nextX += dx;
+        }
+        if (dy) {
+            if (anchor.indexOf('b') >= 0) nextY -= dy;
+            else nextY += dy;
+        }
+        if (dx) jfWriteBadgeOffset('x', nextX);
+        if (dy) jfWriteBadgeOffset('y', nextY);
+    }
+
+    function jfExitBadgeEditMode() {
+        if (!jfBadgeEditMode) return;
+        var prev = jfBadgeEditMode;
+        jfBadgeEditMode = '';
+        $('[data-jf-ui-editor="' + prev + '"]').removeClass('jf-ui-pos-editor--active');
+        jfRefreshBadgePosEditorVisuals(prev);
+    }
+
+    function jfEnterBadgeEditMode(elementId) {
+        jfExitBadgeEditMode();
+        jfBadgeEditMode = elementId;
+        $('[data-jf-ui-editor="' + elementId + '"]').addClass('jf-ui-pos-editor--active');
+        jfRefreshBadgePosEditorVisuals(elementId);
+    }
+
+    function jfToggleBadgeEditMode(elementId) {
+        if (jfBadgeEditMode === elementId) jfExitBadgeEditMode();
+        else jfEnterBadgeEditMode(elementId);
+    }
+
+    function jfBadgePosNudgeByDir(elementId, dir) {
+        if (dir === 'left') jfNudgeBadgeOffset(-JF_BADGE_OFFSET_STEP, 0);
+        else if (dir === 'right') jfNudgeBadgeOffset(JF_BADGE_OFFSET_STEP, 0);
+        else if (dir === 'up') jfNudgeBadgeOffset(0, -JF_BADGE_OFFSET_STEP);
+        else if (dir === 'down') jfNudgeBadgeOffset(0, JF_BADGE_OFFSET_STEP);
+        jfRefreshBadgePosEditorVisuals(elementId);
+    }
+
+    function jfHandleBadgePosKeydown(e) {
+        if (!jfBadgeEditMode) return;
+        var code = e.keyCode || e.which || 0;
+        var handled = false;
+        if (code === 37) { jfBadgePosNudgeByDir(jfBadgeEditMode, 'left'); handled = true; }
+        else if (code === 39) { jfBadgePosNudgeByDir(jfBadgeEditMode, 'right'); handled = true; }
+        else if (code === 38) { jfBadgePosNudgeByDir(jfBadgeEditMode, 'up'); handled = true; }
+        else if (code === 40) { jfBadgePosNudgeByDir(jfBadgeEditMode, 'down'); handled = true; }
+        else if (code === 8 || code === 27 || code === 461 || code === 10009) { jfExitBadgeEditMode(); handled = true; }
+        if (!handled) return;
+        try { e.preventDefault(); e.stopPropagation(); } catch (err) {}
+    }
+
+    function jfEnsureBadgePosKeyCapture() {
+        if (jfBadgeKeyCaptureReady) return;
+        jfBadgeKeyCaptureReady = true;
+        try { document.addEventListener('keydown', jfHandleBadgePosKeydown, true); } catch (e) {}
+    }
+
+    function jfPreviewDotPos() {
+        var anchor = jfBadgePos();
+        var x = jfReadBadgeOffset('x');
+        var y = jfReadBadgeOffset('y');
+        var left = x;
+        var top = y;
+        if (anchor.indexOf('r') >= 0) left = 100 - x;
+        if (anchor.indexOf('b') >= 0) top = 100 - y;
+        left = Math.max(0, Math.min(100, left));
+        top = Math.max(0, Math.min(100, top));
+        return { left: left + '%', top: top + '%' };
+    }
+
+    function jfRefreshBadgePosEditorVisuals(elementId) {
+        elementId = elementId || 'badge';
+        var $editor = $('[data-jf-ui-editor="' + elementId + '"]');
+        if (!$editor.length) return;
+        try {
+            var $dot = $editor.find('.jf-ui-pos-editor__dot');
+            var pos = jfPreviewDotPos();
+            $dot.css({ left: pos.left, top: pos.top });
+        } catch (e0) {}
+        try {
+            var x = jfReadBadgeOffset('x');
+            var y = jfReadBadgeOffset('y');
+            $editor.find('.jf-ui-pos-editor__status').text('X ' + x + '% - Y ' + y + '%');
+            $editor.find('.jf-ui-pos-editor__hint').text('OK — настройка стрелками пульта');
+        } catch (e1) {}
+    }
+
+    function jfRefreshBadgePosEditorVisualsAll() {
+        jfRefreshBadgePosEditorVisuals('badge');
+    }
+
+    function jfRefreshBadgePosEditorVisualsDebounced() {
+        setTimeout(jfRefreshBadgePosEditorVisualsAll, 10);
+    }
+
+    function jfRefreshBadgePosEditorVisuals() {
+        jfRefreshBadgePosEditorVisualsDebounced();
+    }
+
+    function jfRenderBadgePosEditor($item) {
+        jfEnsureBadgePosKeyCapture();
+        try { $item.addClass('jf-ui-pos-wrap'); } catch (e0) {}
+        var $editor = $(
+            '<div class="settings-param selector jf-ui-pos-editor" data-static="true" data-jf-ui-editor="badge">' +
+                '<div class="jf-ui-pos-editor__layout">' +
+                    '<div class="jf-ui-pos-editor__preview" aria-hidden="true">' +
+                        '<div class="jf-ui-pos-editor__card"></div>' +
+                        '<div class="jf-ui-pos-editor__dot"></div>' +
+                    '</div>' +
+                    '<div class="jf-ui-pos-editor__dpad" aria-hidden="true">' +
+                        '<div class="jf-ui-pos-editor__chip jf-ui-pos-editor__chip--up" data-ui-dir="up">↑</div>' +
+                        '<div class="jf-ui-pos-editor__chip jf-ui-pos-editor__chip--left" data-ui-dir="left">←</div>' +
+                        '<div class="jf-ui-pos-editor__chip jf-ui-pos-editor__chip--mid">OK</div>' +
+                        '<div class="jf-ui-pos-editor__chip jf-ui-pos-editor__chip--right" data-ui-dir="right">→</div>' +
+                        '<div class="jf-ui-pos-editor__chip jf-ui-pos-editor__chip--down" data-ui-dir="down">↓</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="jf-ui-pos-editor__status"></div>' +
+                '<div class="jf-ui-pos-editor__hint"></div>' +
+            '</div>'
+        );
+        $editor.on('hover:enter', function () { jfToggleBadgeEditMode('badge'); });
+        $editor.on('hover:focus', function () { try { $editor.addClass('focus'); } catch (e0) {} });
+        $editor.on('hover:blur', function () {
+            if (jfBadgeEditMode === 'badge') jfExitBadgeEditMode();
+            try { $editor.removeClass('focus'); } catch (e0) {}
+        });
+        $editor.find('[data-ui-dir]').on('click', function (ev) {
+            if (ev && ev.stopPropagation) ev.stopPropagation();
+            jfEnterBadgeEditMode('badge');
+            jfBadgePosNudgeByDir('badge', String($(this).data('ui-dir') || ''));
+        });
+        $item.append($editor);
+        jfRefreshBadgePosEditorVisuals('badge');
+    }
+
+    function jfBadgeCss() {
+        var pos = jfBadgePos();
+        var x = jfReadBadgeOffset('x');
+        var y = jfReadBadgeOffset('y');
+
+        var left = 'auto';
+        var right = 'auto';
+        var top = 'auto';
+        var bottom = 'auto';
+
+        if (pos === 'tr') { right = x + '%'; top = y + '%'; }
+        else if (pos === 'bl') { left = x + '%'; bottom = y + '%'; }
+        else if (pos === 'br') { right = x + '%'; bottom = y + '%'; }
+        else { left = x + '%'; top = y + '%'; }
+
+        return '' +
+            '.jf-exist-badge{position:absolute;left:' + left + ';right:' + right + ';top:' + top + ';bottom:' + bottom + ';z-index:6;width:1.7em;height:1.7em;border-radius:50%;' +
+            'display:flex;align-items:center;justify-content:center;background:rgba(20,20,24,.72);' +
+            'box-shadow:0 2px 6px rgba(0,0,0,.4);pointer-events:auto;cursor:pointer;backdrop-filter:blur(4px)}' +
+            '.jf-exist-badge.focus{background:rgba(255,255,255,.92);box-shadow:0 0 0 .22em #fff,0 2px 10px rgba(0,0,0,.45)}' +
+            '.jf-exist-badge.focus svg{filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))}' +
+            '.jf-exist-badge svg{width:1.05em;height:1.05em;display:block}';
+    }
+
+    function jfApplyBadgeCss() {
+        try {
+            var el = document.getElementById('jf-badge-style');
+            if (el && el.parentNode) el.parentNode.removeChild(el);
+        } catch (e0) {}
+        try {
+            $('body').append('<style id="jf-badge-style">' + jfBadgeCss() + '</style>');
+        } catch (e1) {}
+    }
+
+    function jfInjectBadgePosEditorCss() {
+        try { if (document.getElementById('jf-badge-pos-editor-style')) return; } catch (e0) {}
+        var css = '' +
+            '.jf-ui-pos-wrap .settings-param__name{margin-bottom:.15em}' +
+            '.jf-ui-pos-editor{margin-top:.35em;padding:.75em .85em;border-radius:1em;background:linear-gradient(160deg,#1a2030 0%,#12161f 100%);border:1px solid rgba(255,255,255,.08)}' +
+            '.jf-ui-pos-editor.focus{box-shadow:0 0 0 .18em rgba(255,255,255,.92)}' +
+            '.jf-ui-pos-editor--active{border-color:rgba(90,200,250,.55);box-shadow:0 0 0 .18em rgba(90,200,250,.35),0 10px 24px rgba(0,0,0,.28)}' +
+            '.jf-ui-pos-editor__layout{display:flex;align-items:center;gap:.85em}' +
+            '.jf-ui-pos-editor__preview{position:relative;flex:0 0 4.6em;width:4.6em;height:6.4em;border-radius:.65em;overflow:hidden;background:linear-gradient(145deg,#3a4254 0%,#222833 100%);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}' +
+            '.jf-ui-pos-editor__card{position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(0,0,0,.12))}' +
+            '.jf-ui-pos-editor__dot{position:absolute;width:.62em;height:.62em;margin:-.31em 0 0 -.31em;border-radius:50%;background:#5ac8fa;box-shadow:0 0 0 .14em rgba(90,200,250,.35),0 2px 8px rgba(0,0,0,.35)}' +
+            '.jf-ui-pos-editor__dpad{display:grid;grid-template-columns:repeat(3,2.15em);grid-template-rows:repeat(3,2.15em);gap:.28em;flex:0 0 auto}' +
+            '.jf-ui-pos-editor__chip{display:flex;align-items:center;justify-content:center;border-radius:.75em;font-size:.95em;font-weight:700;color:#eef1f6;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}' +
+            '.jf-ui-pos-editor__chip--mid{grid-column:2;grid-row:2;font-size:.72em;font-weight:600;opacity:.72}' +
+            '.jf-ui-pos-editor__chip--up{grid-column:2;grid-row:1}' +
+            '.jf-ui-pos-editor__chip--left{grid-column:1;grid-row:2}' +
+            '.jf-ui-pos-editor__chip--right{grid-column:3;grid-row:2}' +
+            '.jf-ui-pos-editor__chip--down{grid-column:2;grid-row:3}' +
+            '.jf-ui-pos-editor--active .jf-ui-pos-editor__chip{background:rgba(90,200,250,.14)}' +
+            '.jf-ui-pos-editor--active .jf-ui-pos-editor__chip--mid{background:rgba(90,200,250,.28);opacity:1}' +
+            '.jf-ui-pos-editor__status{margin-top:.55em;font-size:.92em;font-weight:600}' +
+            '.jf-ui-pos-editor__hint{margin-top:.2em;font-size:.82em;opacity:.68;line-height:1.35}';
+        try { $('body').append('<style id="jf-badge-pos-editor-style">' + css + '</style>'); } catch (e1) {}
+    }
+
+    function jfDecorateCard(cardEl) {
+        try {
+            if (!jfBadgeEnabled()) return;
+            var el = cardEl && cardEl.jquery ? cardEl[0] : cardEl;
+            if (!el || el.jellyfin_badge_checked) return;
+            var $card = $(el);
+            if ($card.find('.jf-exist-badge').length) { el.jellyfin_badge_checked = true; return; }
+
+            var data = jfCardDataFrom(el);
+            if (!data) return;
+
+            var method = jfCardMediaMethod(data);
+            var id = jfCardMediaId(data);
+            if (!method || !id) return;
+
+            el.jellyfin_badge_checked = true;
+
+            var jfId = '';
+            try { jfId = Jellyfin.findJellyfinIdByTmdb(method, id); } catch (e1) { jfId = ''; }
+            if (!jfId) return;
+
+            var $view = $card.find('.card__view').first();
+            if (!$view.length) return;
+            try { el.jellyfin_badge_jfid = String(jfId || ''); } catch (eJ0) { el.jellyfin_badge_jfid = ''; }
+            $view.append('<div class="jf-exist-badge selector" tabindex="-1" title="Есть на сервере Jellyfin">' + getIcon() + '</div>');
+            try {
+                var $badge = $view.find('.jf-exist-badge').last();
+                if ($badge && $badge.length) {
+                    $badge.off('click.jf_badge');
+                    $badge.on('click.jf_badge', function (e) {
+                        try { if (e && e.stopImmediatePropagation) e.stopImmediatePropagation(); } catch (e0) {}
+                        try { if (e && e.preventDefault) e.preventDefault(); } catch (e1) {}
+                        try { jfOpenById(el.jellyfin_badge_jfid); } catch (e2) {}
+                    });
+                    $badge.off('hover:enter.jf_badge');
+                    $badge.on('hover:enter.jf_badge', function (e) {
+                        try { if (e && e.stopImmediatePropagation) e.stopImmediatePropagation(); } catch (e0) {}
+                        try { jfOpenById(el.jellyfin_badge_jfid); } catch (e2) {}
+                    });
+                    $badge.off('hover:focus.jf_badge');
+                    $badge.on('hover:focus.jf_badge', function () {
+                        try { $badge.addClass('focus'); } catch (e0) {}
+                    });
+                    $badge.off('hover:blur.jf_badge');
+                    $badge.on('hover:blur.jf_badge', function () {
+                        try { $badge.removeClass('focus'); } catch (e0) {}
+                    });
+                }
+            } catch (eB0) {}
+        } catch (e0) {}
+    }
+
+    function jfRescanVisibleCards() {
+        if (!jfBadgeEnabled()) return;
+        try {
+            $('.card.card--loaded, .card.selector').each(function () { jfDecorateCard(this); });
+        } catch (e0) {}
+    }
+
+    function jfPatchCardModule() {
+        try {
+            if (Lampa.Maker && typeof Lampa.Maker.map === 'function') {
+                var map = Lampa.Maker.map('Card');
+                if (map && map.Card && !map.Card.__jellyfinBadgePatched) {
+                    var originalOnCreate = map.Card.onCreate;
+                    map.Card.onCreate = function () {
+                        if (typeof originalOnCreate === 'function') originalOnCreate.apply(this, arguments);
+                        if (this.html && this.data) jfBindCardData(this.html, this.data);
+                    };
+                    var originalOnVisible = map.Card.onVisible;
+                    map.Card.onVisible = function () {
+                        if (typeof originalOnVisible === 'function') originalOnVisible.apply(this, arguments);
+                        if (this.html) jfDecorateCard(this.html);
+                    };
+                    map.Card.__jellyfinBadgePatched = true;
+                }
+            }
+        } catch (e0) {}
+
+        try {
+            if (typeof Lampa.Card === 'function' && !Lampa.Card.__jellyfinBadgePatched) {
+                var proto = Lampa.Card.prototype;
+                if (proto && typeof proto.build === 'function') {
+                    var originalBuild = proto.build;
+                    proto.build = function () {
+                        originalBuild.apply(this, arguments);
+                        if (this.card && this.data) {
+                            jfBindCardData(this.card, this.data);
+                            jfDecorateCard(this.card);
+                        }
+                    };
+                    Lampa.Card.__jellyfinBadgePatched = true;
+                }
+            }
+        } catch (e0) {}
+    }
+
+    function jfInitPosterBadge() {
+        jfPatchCardModule();
+        [300, 1000, 3000, 8000].forEach(function (delay) { setTimeout(jfPatchCardModule, delay); });
+
+        // Fallback sweep: catches cards rendered by code paths the two patches above miss,
+        // and re-checks lines as they get appended (e.g. Jellyfin index finishing later).
+        try {
+            Lampa.Listener.follow('line', function (e) {
+                if (!e || (e.type !== 'append' && e.type !== 'createAndAppend')) return;
+                setTimeout(jfRescanVisibleCards, 120);
+            });
+            Lampa.Listener.follow('activity', function (e) {
+                if (e && (e.type === 'start' || e.type === 'open')) setTimeout(jfRescanVisibleCards, 250);
+            });
+        } catch (e0) {}
+        jfApplyBadgeCss();
+    }
+
+    // NOTE: there used to be a jfInjectGridFixCss() here that forced a custom
+    // px-based CSS grid (auto-fill/minmax) onto Jellyfin listing screens. It was
+    // removed: it fought Lampa's own 'cols--N'/'mapping--grid' grid system, which
+    // is what actually decides column count/card size responsively on every other
+    // screen in the app. Jellyfin screens now use InteractionCategory/InteractionMain
+    // completely unmodified, so they size themselves exactly like native Lampa
+    // category and home screens on any given device/orientation.
 
     function addJellyfinFoldersUi() {
         if (!Lampa.Template || !Lampa.Template.add) return;
@@ -4008,7 +4617,7 @@
             '</div>');
 
         Lampa.Template.add('jellyfin_folder_card',
-            '<div class="card selector layer--visible layer--render card--collection jf-folder-card jf-folder-card--horizontal">' +
+            '<div class="card selector layer--visible layer--render jf-folder-card jf-folder-card--horizontal">' +
                 '<div class="card__view">' +
                     '<img src="./img/img_load.svg" class="card__img jf-folder-card__img">' +
                     '<div class="jf-folder-card__badge"></div>' +
@@ -4017,7 +4626,7 @@
             '</div>');
 
         Lampa.Template.add('jellyfin_folder_card_vertical',
-            '<div class="card selector layer--visible layer--render card--collection jf-folder-card jf-folder-card--vertical">' +
+            '<div class="card selector layer--visible layer--render jf-folder-card jf-folder-card--vertical">' +
                 '<div class="card__view">' +
                     '<img src="./img/img_load.svg" class="card__img jf-folder-card__img">' +
                     '<div class="jf-folder-card__badge"></div>' +
@@ -4026,16 +4635,18 @@
             '</div>');
 
         var css = '' +
-            '.jf-lib-card{-webkit-flex:0 0 31.5%;flex:0 0 31.5%;width:31.5%;min-width:31.5%;max-width:31.5%;margin-right:1.2%;position:relative}' +
-            '.jf-lib-card .card__view{padding-bottom:56.2% !important;border-radius:.8em !important;overflow:visible !important;position:relative;background-color:#2b2b2b}' +
+            '.jf-lib-card .card__view{padding-bottom:150% !important;border-radius:.8em !important;overflow:visible !important;position:relative;background-color:#2b2b2b}' +
+            '.items-line .jf-lib-card{width:34.3em !important}' +
+            '.items-line .jf-lib-card .card__view{padding-bottom:56% !important}' +
             '.jf-lib-card .card__view::after{content:"";position:absolute;top:0;left:0;right:0;bottom:0;border-radius:.8em;overflow:hidden;pointer-events:none}' +
             '.jf-lib-card .card__img{width:100%;height:100%;position:absolute;top:0;left:0;object-fit:cover;opacity:0;transition:opacity .2s ease;border-radius:.8em !important}' +
             '.jf-lib-card.card--loaded .card__img{opacity:1 !important}' +
             '.jf-lib-card__gradient{position:absolute;left:0;right:0;bottom:0;height:60%;background:linear-gradient(180deg,rgba(0,0,0,0) 0%,rgba(0,0,0,.75) 100%);pointer-events:none;border-radius:0 0 .8em .8em}' +
             '.jf-lib-card__title{position:absolute;left:0;right:0;bottom:0;padding:.7em 1em;color:#fff;font-size:1.15em;font-weight:600;text-shadow:0 1px 4px rgba(0,0,0,.6)}' +
             '.jf-lib-card>.card__title{max-height:0 !important;overflow:hidden !important;padding:0 !important;margin:0 !important;visibility:hidden !important}' +
-            '.jf-resume-card{-webkit-flex:0 0 31.5%;flex:0 0 31.5%;width:31.5%;min-width:31.5%;max-width:31.5%;margin-right:1.2%;position:relative}' +
-            '.jf-resume-card .card__view{padding-bottom:56.2% !important;border-radius:.8em !important;overflow:hidden !important;position:relative;background-color:#2b2b2b}' +
+            '.jf-resume-card .card__view{padding-bottom:150% !important;border-radius:.8em !important;overflow:hidden !important;position:relative;background-color:#2b2b2b}' +
+            '.items-line .jf-resume-card{width:34.3em !important}' +
+            '.items-line .jf-resume-card .card__view{padding-bottom:56% !important}' +
             '.jf-resume-card.focus .card__view{overflow:visible !important}' +
             '.jf-resume-card .jf-resume-card__img{width:100%;height:100%;position:absolute;top:0;left:0;object-fit:cover;opacity:0;transition:opacity .2s ease;border-radius:inherit}' +
             '.jf-resume-card.card--loaded .jf-resume-card__img{opacity:1 !important}' +
@@ -4047,7 +4658,7 @@
             '.jf-resume-card__time{display:none !important}' +
             '.jf-resume-card.focus .jf-resume-card__barclip,.jf-resume-card.focus .jf-resume-card__time{opacity:1}' +
             '.jf-folder-card--horizontal{position:relative}' +
-            '.jf-folder-card--horizontal .card__view{padding-bottom:100% !important;position:relative;border-radius:.8em !important;overflow:visible !important;background-color:#2b2b2b}' +
+            '.jf-folder-card--horizontal .card__view{padding-bottom:150% !important;position:relative;border-radius:.8em !important;overflow:visible !important;background-color:#2b2b2b}' +
             '.jf-folder-card--horizontal .card__view::after{content:"";position:absolute;top:0;left:0;right:0;bottom:0;border-radius:.8em;overflow:hidden;pointer-events:none}' +
             '.jf-folder-card--horizontal .jf-folder-card__img{width:100%;height:100%;position:absolute;top:0;left:0;object-fit:cover;opacity:0;transition:opacity .2s ease;border-radius:.8em !important}' +
             '.jf-folder-card--horizontal.card--loaded .jf-folder-card__img{opacity:1 !important}' +
@@ -4059,18 +4670,7 @@
             '.jf-folder-card--vertical .jf-folder-card__img{width:100%;height:100%;position:absolute;top:0;left:0;object-fit:cover;opacity:0;transition:opacity .2s ease;border-radius:.8em !important}' +
             '.jf-folder-card--vertical.card--loaded .jf-folder-card__img{opacity:1 !important}' +
             '.jf-folder-card--vertical .jf-folder-card__badge{position:absolute;top:.5em;right:.5em;min-width:1.9em;height:1.9em;padding:0 .5em;border-radius:1em;background:#2f9bf0;color:#fff;font-size:.9em;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.5);z-index:5}' +
-            '.jf-folder-card--vertical .card__title{margin-top:.5em;text-align:center}' +
-            'body.size--bigger .jf-lib-card{-webkit-flex-basis:31.5%;flex-basis:31.5%}' +
-            '@media screen and (orientation:portrait){' +
-                '.jf-lib-card{-webkit-flex:0 0 48% !important;flex:0 0 48% !important;width:48% !important;min-width:48% !important;max-width:48% !important}' +
-                '.jf-resume-card{-webkit-flex:0 0 48% !important;flex:0 0 48% !important;width:48% !important;min-width:48% !important;max-width:48% !important}' +
-                '.jf-folder-card--horizontal{-webkit-flex:0 0 48% !important;flex:0 0 48% !important;width:48% !important;min-width:48% !important;max-width:48% !important}' +
-                '.jf-folder-card--vertical{-webkit-flex:0 0 31% !important;flex:0 0 31% !important;width:31% !important;min-width:31% !important;max-width:31% !important}' +
-            '}' +
-            '@media screen and (orientation:portrait) and (max-width:420px){' +
-                '.jf-lib-card{-webkit-flex:0 0 98% !important;flex:0 0 98% !important;width:98% !important;min-width:98% !important;max-width:98% !important}' +
-                '.jf-resume-card{-webkit-flex:0 0 98% !important;flex:0 0 98% !important;width:98% !important;min-width:98% !important;max-width:98% !important}' +
-            '}';
+            '.jf-folder-card--vertical .card__title{margin-top:.5em;text-align:center}';
 
         Lampa.Template.add('jellyfin_folders_css', '<style>' + css + '</style>');
         $('body').append(Lampa.Template.get('jellyfin_folders_css', {}, true));
@@ -4090,6 +4690,11 @@
                 Jellyfin.buildMainLines(function (lines) {
                     _this.build(lines);
                 }, this.empty.bind(this));
+                // IMPORTANT: jellyfin_main is InteractionMain - horizontally scrolling
+                // carousel rows (like the native home screen), NOT a wrapping grid.
+                // Do NOT add 'jellyfin-grid-fix' here: forcing display:grid on .items-line
+                // breaks the row's transform-based horizontal scroll positioning and causes
+                // the broken layout (cards cut off, huge gaps, misplaced rows).
                 return this.render();
             };
             comp.onMore = function (data) {
@@ -4099,7 +4704,7 @@
                 Lampa.Activity.push({
                     url: url,
                     title: data.title || '',
-                    component: String(url).indexOf('jellyfin://') === 0 ? (String(url).indexOf('jellyfin://browse') === 0 ? 'jellyfin_browse' : 'jellyfin_category_full') : 'category_full',
+                    component: 'category_full',
                     page: 1
                 });
             };
@@ -4114,6 +4719,11 @@
                 Lampa.Api.list(object, function (data) {
                     _this.build(data);
                 }, this.empty.bind(this));
+                // No custom grid class here: InteractionCategory applies its own
+                // 'cols--N'/'mapping--grid' classes and the native responsive CSS
+                // already sizes the grid exactly like any other Lampa category page
+                // (same column count on the same device/orientation as the rest
+                // of the app). A hand-rolled px-based grid would disagree with it.
                 return this.render();
             };
             comp.nextPageReuest = function (obj2, resolve, reject) {
@@ -4142,6 +4752,8 @@
                 Jellyfin.fetchBrowseData(object, function (data) {
                     _this.build(data);
                 }, this.empty.bind(this));
+                // Same reasoning as jellyfin_category_full above: let the native
+                // cols--N grid do its job instead of a custom px grid.
                 return this.render();
             };
             comp.nextPageReuest = function (obj2, resolve, reject) {
@@ -4161,6 +4773,7 @@
             };
             return comp;
         });
+
     }
 
     function init() {
@@ -4212,11 +4825,83 @@
             Jellyfin.authenticate(function () {
                 Lampa.Noty.show('Jellyfin: успешно авторизован');
                 try { if (Lampa.Settings && Lampa.Settings.update) Lampa.Settings.update(); } catch (e0) {}
+                setTimeout(function () { Jellyfin.ensureTmdbIndex(true); }, 1500);
             });
         } });
         Lampa.SettingsApi.addParam({ component: 'jellyfin_settings', param: { type: 'button', name: 'jellyfin_quick_connect' }, field: { name: 'Быстрое подключение', description: 'Войти по коду (Quick Connect) без логина/пароля' }, onChange: function () { Jellyfin.quickConnectUI(); } });
-        Lampa.SettingsApi.addParam({ component: 'jellyfin_settings', param: { type: 'button', name: 'jellyfin_lines_config' }, field: { name: 'Ленты Jellyfin', description: 'Порядок и видимость лент в разделе Jellyfin' }, onChange: function () { Jellyfin.configureLinesUI(); } });
         Lampa.SettingsApi.addParam({ component: 'jellyfin_settings', param: { type: 'button', name: 'jellyfin_logout' }, field: { name: 'Выйти', description: 'Удалить сохранённый токен Jellyfin' }, onChange: function () { Jellyfin.clearAuth(); try { Lampa.Noty.show('Jellyfin: токен очищен'); } catch (e0) {} } });
+
+        Lampa.SettingsApi.addParam({
+            component: 'jellyfin_settings',
+            param: { type: 'title' },
+            field: { name: 'Персонализация' }
+        });
+
+        Lampa.SettingsApi.addParam({ component: 'jellyfin_settings', param: { type: 'button', name: 'jellyfin_lines_config' }, field: { name: 'Ленты Jellyfin', description: 'Порядок и видимость лент в разделе Jellyfin' }, onChange: function () { Jellyfin.configureLinesUI(); } });
+
+        Lampa.SettingsApi.addParam({
+            component: 'jellyfin_settings',
+            param: { type: 'trigger', name: 'jellyfin_head_icon', 'default': true },
+            field: { name: 'Иконка в верхнем баре', description: 'Показывать иконку Jellyfin в верхней панели Lampa' },
+            onChange: function () { jfSyncHeadIcon(); }
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: 'jellyfin_settings',
+            param: { type: 'trigger', name: 'jellyfin_poster_badge', 'default': true },
+            field: { name: 'Значок на постере', description: 'Показывать значок Jellyfin на постерах, если фильм/сериал уже есть на сервере' }
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: 'jellyfin_settings',
+            param: {
+                name: 'jellyfin_badge_pos',
+                type: 'select',
+                values: { tl: 'Вверху слева', tr: 'Вверху справа', bl: 'Внизу слева', br: 'Внизу справа' },
+                'default': 'tr'
+            },
+            field: { name: 'Угол значка', description: '' },
+            onChange: function () { jfApplyBadgeCss(); jfRefreshBadgePosEditorVisuals(); }
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: 'jellyfin_settings',
+            param: { name: 'jellyfin_badge_pos_editor', type: 'static' },
+            field: { name: 'Позиция' },
+            onRender: function (item) {
+                jfInjectBadgePosEditorCss();
+                jfRenderBadgePosEditor(item);
+            }
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: 'jellyfin_settings',
+            param: { type: 'button', name: 'jellyfin_badge_reset' },
+            field: { name: 'Сбросить позицию', description: '' },
+            onChange: function () {
+                try {
+                    Lampa.Storage.set('jellyfin_badge_pos', 'tr');
+                    Lampa.Storage.set('jellyfin_badge_off_x', '4p');
+                    Lampa.Storage.set('jellyfin_badge_off_y', '4p');
+                } catch (e0) {}
+                jfApplyBadgeCss();
+                jfRefreshBadgePosEditorVisuals();
+                try { if (Lampa.Settings && Lampa.Settings.update) Lampa.Settings.update(); } catch (e1) {}
+            }
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: 'jellyfin_settings',
+            param: { type: 'button', name: 'jellyfin_rebuild_index' },
+            field: { name: 'Обновить базу значков', description: 'Перечитать всю библиотеку Jellyfin, чтобы значки на постерах были актуальны' },
+            onChange: function () {
+                Lampa.Noty.show('Jellyfin: обновление базы значков...');
+                Jellyfin.buildTmdbIndex({}, function (ok, count) {
+                    if (ok) Lampa.Noty.show('Jellyfin: база значков обновлена (' + (count || 0) + ')');
+                    else Lampa.Noty.show('Jellyfin: не удалось обновить базу значков');
+                });
+            }
+        });
 
         Lampa.SettingsApi.addParam({
             component: 'jellyfin_settings',
@@ -4238,6 +4923,7 @@
                     onSelect: function (item) {
                         Lampa.Storage.set('jellyfin_icon_style', item.val);
                         try { $('.menu__item[data-action="jellyfin"] .menu__ico').html(getIcon()); } catch(e0) {}
+                        jfRefreshHeadIconStyle();
                         try { Lampa.Controller.toggle('settings'); } catch(e1) {}
                     },
                     onBack: function () {
@@ -4262,6 +4948,12 @@
         Jellyfin.patchApi();
         Jellyfin.registerSearch();
         Jellyfin.enhanceResumeCards();
+
+        jfInjectHeadIcon();
+        [300, 1000, 3000].forEach(function (delay) { setTimeout(jfInjectHeadIcon, delay); });
+
+        jfInitPosterBadge();
+        setTimeout(function () { Jellyfin.ensureTmdbIndex(); }, 4000);
 
         Lampa.Listener.follow('menu', function (e) {
             try {
