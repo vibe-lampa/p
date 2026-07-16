@@ -4344,7 +4344,7 @@
         return { left: left + '%', top: top + '%' };
     }
 
-    function jfRefreshBadgePosEditorVisuals(elementId) {
+    function jfRefreshBadgePosEditorVisualsNow(elementId) {
         elementId = elementId || 'badge';
         var $editor = $('[data-jf-ui-editor="' + elementId + '"]');
         if (!$editor.length) return;
@@ -4362,15 +4362,15 @@
     }
 
     function jfRefreshBadgePosEditorVisualsAll() {
-        jfRefreshBadgePosEditorVisuals('badge');
+        jfRefreshBadgePosEditorVisualsNow('badge');
     }
 
-    function jfRefreshBadgePosEditorVisualsDebounced() {
-        setTimeout(jfRefreshBadgePosEditorVisualsAll, 10);
+    function jfRefreshBadgePosEditorVisualsDebounced(elementId) {
+        setTimeout(function () { jfRefreshBadgePosEditorVisualsNow(elementId || 'badge'); }, 10);
     }
 
-    function jfRefreshBadgePosEditorVisuals() {
-        jfRefreshBadgePosEditorVisualsDebounced();
+    function jfRefreshBadgePosEditorVisuals(elementId) {
+        jfRefreshBadgePosEditorVisualsDebounced(elementId);
     }
 
     function jfRenderBadgePosEditor($item) {
@@ -4386,7 +4386,7 @@
                     '<div class="jf-ui-pos-editor__dpad" aria-hidden="true">' +
                         '<div class="jf-ui-pos-editor__chip jf-ui-pos-editor__chip--up" data-ui-dir="up">↑</div>' +
                         '<div class="jf-ui-pos-editor__chip jf-ui-pos-editor__chip--left" data-ui-dir="left">←</div>' +
-                        '<div class="jf-ui-pos-editor__chip jf-ui-pos-editor__chip--mid">OK</div>' +
+                        '<div class="jf-ui-pos-editor__chip jf-ui-pos-editor__chip--mid"><span class="jf-ui-pos-editor__chip-label">OK</span></div>' +
                         '<div class="jf-ui-pos-editor__chip jf-ui-pos-editor__chip--right" data-ui-dir="right">→</div>' +
                         '<div class="jf-ui-pos-editor__chip jf-ui-pos-editor__chip--down" data-ui-dir="down">↓</div>' +
                     '</div>' +
@@ -4459,7 +4459,8 @@
                gap 0.28em -> col/row offsets: 0, 2.43em, 4.86em; total box 7.01em square. */
             '.jf-ui-pos-editor__dpad{position:relative;width:7.01em;height:7.01em;margin-left:.85em;flex:0 0 auto}' +
             '.jf-ui-pos-editor__chip{position:absolute;width:2.15em;height:2.15em;display:flex;align-items:center;justify-content:center;border-radius:.75em;font-size:.95em;font-weight:700;color:#eef1f6;background:rgba(255,255,255,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}' +
-            '.jf-ui-pos-editor__chip--mid{left:2.43em;top:2.43em;font-size:.72em;font-weight:600;opacity:.72}' +
+            '.jf-ui-pos-editor__chip--mid{left:2.43em;top:2.43em;opacity:.72}' +
+            '.jf-ui-pos-editor__chip--mid .jf-ui-pos-editor__chip-label{font-size:.72em;font-weight:600}' +
             '.jf-ui-pos-editor__chip--up{left:2.43em;top:0}' +
             '.jf-ui-pos-editor__chip--left{left:0;top:2.43em}' +
             '.jf-ui-pos-editor__chip--right{left:4.86em;top:2.43em}' +
