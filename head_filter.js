@@ -135,11 +135,7 @@
 		// head_filter_hide -> array of icon ids that should be hidden.
 		var STORAGE_SORT = 'head_filter_sort';
 		var STORAGE_HIDE = 'head_filter_hide';
-
-		// Snapshot of how things looked the very first time the plugin ever
-		// ran — used by the "reset" button to restore the native layout.
-		var STORAGE_DEFAULT_SORT = 'head_filter_default_sort';
-		var STORAGE_DEFAULT_HIDE = 'head_filter_default_hide';
+		var STORAGE_DYNAMIC = 'head_filter_dynamic';
 
 		// Container(s) that plugins normally append their head icons into.
 		// ".head__actions" is the official slot; some builds also render
@@ -255,7 +251,7 @@
 		// plugin currently manages, in real DOM/document order — this is
 		// what makes "default position on load" behave correctly, since
 		// nothing here re-sequences items based on a fixed dictionary.
-		function discover() {
+		function discoverCandidates() {
 			var result = [];
 			var seenNodes = [];
 
@@ -296,36 +292,152 @@
 			return result;
 		}
 
-		// Records the native, out-of-the-box layout the very first time the
-		// plugin runs (before any customization exists), so "reset" always
-		// has a real default to restore rather than a hardcoded guess.
-		function captureDefaultsIfNeeded(items) {
-			if (Lampa.Storage.get(STORAGE_DEFAULT_SORT, null) !== null) return;
+		var warmupUntil = Date.now() + 3000;
+		var dynamic = null;
+		var dynamicState = {};
 
-			var sort = [];
-			var hidden = [];
+		function loadDynamic() {
+			if (dynamic) return dynamic;
+			dynamic = {};
+			var stored = Lampa.Storage.get(STORAGE_DYNAMIC, []);
+			if (Array.isArray(stored)) {
+				stored.forEach(function (id) {
+					dynamic[id] = true;
+				});
+			}
+			return dynamic;
+		}
+
+		function persistDynamic() {
+			if (!dynamic) return;
+			Lampa.Storage.set(STORAGE_DYNAMIC, Object.keys(dynamic));
+		}
+
+		function isVisibleElement(el) {
+			if (!el) return false;
+			try {
+				if (el.classList && (el.classList.contains('hide') || el.classList.contains('hidden'))) return false;
+			} catch (e) {}
+
+			try {
+				var st = el.style || {};
+				if (st.display === 'none' || st.visibility === 'hidden') return false;
+			} catch (e) {}
+
+			try {
+				if (el.offsetWidth || el.offsetHeight || (el.getClientRects && el.getClientRects().length)) return true;
+			} catch (e) {}
+
+			try {
+				if (window.getComputedStyle) {
+					var cs = window.getComputedStyle(el);
+					if (!cs) return true;
+					if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') return false;
+				}
+			} catch (e) {}
+
+			return true;
+		}
+
+		function updateDynamic(items) {
+			loadDynamic();
+			var now = Date.now();
+			var ids = items.map(function (item) { return item.id; });
+
+			if (now >= warmupUntil) {
+				Object.keys(dynamicState).forEach(function (id) {
+					if (ids.indexOf(id) === -1) dynamicState[id].missing = true;
+				});
+			}
 
 			items.forEach(function (item) {
-				sort.push(item.id);
-				if (item.el.hasClass('hide') || item.el.css('display') === 'none') hidden.push(item.id);
+				var id = item.id;
+				if (!dynamicState[id]) dynamicState[id] = {visible: false, hidden: false, missing: false};
+
+				var el = item.el && item.el.get ? item.el.get(0) : null;
+				if (isVisibleElement(el)) dynamicState[id].visible = true;
+				else dynamicState[id].hidden = true;
 			});
 
-			Lampa.Storage.set(STORAGE_DEFAULT_SORT, sort);
-			Lampa.Storage.set(STORAGE_DEFAULT_HIDE, hidden);
+			var changed = false;
+			Object.keys(dynamicState).forEach(function (id) {
+				if (dynamic[id]) return;
+				var st = dynamicState[id];
+				if (st.visible && (st.hidden || st.missing)) {
+					dynamic[id] = true;
+					changed = true;
+				}
+			});
+
+			if (changed) persistDynamic();
+		}
+
+		function discoverStable() {
+			var items = discoverCandidates();
+			updateDynamic(items);
+			loadDynamic();
+			return items.filter(function (item) {
+				return !dynamic[item.id];
+			});
+		}
+
+		// Reset just clears the plugin's own two storage keys, without
+		// touching anything else in Lampa's storage. Once both are empty,
+		// order() has nothing to reorder by and hide() has nothing to hide,
+		// so icons fall back to the natural DOM order untouched.
+		var defaultSnapshots = [];
+
+		function captureDefaultOrder() {
+			defaultSnapshots = [];
+			CONTAINERS.forEach(function (sel) {
+				$(sel).each(function () {
+					defaultSnapshots.push({
+						parent: this,
+						children: Array.prototype.slice.call(this.children)
+					});
+				});
+			});
+		}
+
+		function restoreDefaultOrder() {
+			defaultSnapshots.forEach(function (snap) {
+				if (!snap || !snap.parent) return;
+				if (!document.contains(snap.parent)) return;
+
+				var parent = snap.parent;
+				var current = Array.prototype.slice.call(parent.children);
+				var inSnap = snap.children.slice();
+
+				var snapSet = [];
+				inSnap.forEach(function (node) {
+					if (node && node.parentNode === parent) snapSet.push(node);
+				});
+
+				var rest = current.filter(function (node) {
+					return snapSet.indexOf(node) === -1;
+				});
+
+				snapSet.concat(rest).forEach(function (node) {
+					parent.appendChild(node);
+				});
+			});
 		}
 
 		function resetToDefaults() {
-			var sort = Lampa.Storage.get(STORAGE_DEFAULT_SORT, []);
-			var hidden = Lampa.Storage.get(STORAGE_DEFAULT_HIDE, []);
-
-			Lampa.Storage.set(STORAGE_SORT, sort);
-			Lampa.Storage.set(STORAGE_HIDE, hidden);
-
-			apply();
+			restoreDefaultOrder();
+			Lampa.Storage.set(STORAGE_SORT, []);
+			Lampa.Storage.set(STORAGE_HIDE, []);
+			Lampa.Storage.set(STORAGE_DYNAMIC, []);
 
 			try {
 				Lampa.Noty.show(Lampa.Lang.translate('head_filter_reset_done'));
 			} catch (e) {}
+
+			setTimeout(function () {
+				try {
+					window.location.reload();
+				} catch (e) {}
+			}, 50);
 		}
 
 		// -------------------------------------------------------------------
@@ -358,19 +470,34 @@
 			});
 
 			groups.forEach(function (group) {
-				var ordered = sort.filter(function (id) {
-					return group.items.some(function (item) {
-						return item.id === id;
-					});
-				});
+				var parent = group.parentNode;
 				var byId = {};
 				group.items.forEach(function (item) {
-					byId[item.id] = item.el;
+					byId[item.id] = item.el.get(0);
 				});
 
-				ordered.forEach(function (id) {
-					if (byId[id]) byId[id].appendTo(group.parentNode);
+				var managedIds = group.items.map(function (item) { return item.id; });
+				var desiredIds = sort.filter(function (id) { return managedIds.indexOf(id) !== -1; });
+				managedIds.forEach(function (id) {
+					if (desiredIds.indexOf(id) === -1) desiredIds.push(id);
 				});
+
+				var desiredNodes = desiredIds.map(function (id) { return byId[id]; }).filter(Boolean);
+				var desiredIndex = 0;
+
+				var currentChildren = Array.prototype.slice.call(parent.children);
+				currentChildren.forEach(function (child) {
+					var id = child && child.getAttribute ? child.getAttribute('data-hf-id') : null;
+					if (id && byId[id]) {
+						if (desiredNodes[desiredIndex]) parent.appendChild(desiredNodes[desiredIndex++]);
+					} else {
+						parent.appendChild(child);
+					}
+				});
+
+				while (desiredIndex < desiredNodes.length) {
+					parent.appendChild(desiredNodes[desiredIndex++]);
+				}
 			});
 		}
 
@@ -391,9 +518,17 @@
 			});
 		}
 
+		var ignoreMutationsUntil = 0;
+
 		function apply() {
-			var items = discover();
-			captureDefaultsIfNeeded(items);
+			ignoreMutationsUntil = Date.now() + 100;
+			var candidates = discoverCandidates();
+			updateDynamic(candidates);
+			loadDynamic();
+
+			var items = candidates.filter(function (item) {
+				return !dynamic[item.id];
+			});
 			order(items);
 			hide(items);
 		}
@@ -421,8 +556,7 @@
 		// a horizontal row instead of a vertical list.
 		// -------------------------------------------------------------------
 		function openEditor() {
-			var items = discover();
-			captureDefaultsIfNeeded(items);
+			var items = discoverStable();
 			order(items);
 			hide(items);
 
@@ -513,34 +647,10 @@
 		var syncTimer;
 
 		function scheduleSync() {
+			if (Date.now() < ignoreMutationsUntil) return;
 			clearTimeout(syncTimer);
 			syncTimer = setTimeout(function () {
-				var items = discover();
-
-				var sort = Lampa.Storage.get(STORAGE_SORT, []);
-				var firstRun = !sort.length;
-
-				var newIds = items.map(function (item) {
-					return item.id;
-				}).filter(function (id) {
-					return sort.indexOf(id) === -1;
-				});
-
-				if (firstRun) {
-					// nothing saved yet at all — just seed with the natural
-					// DOM order, same as before
-					sort = sort.concat(newIds);
-				} else {
-					// icons that show up later (added by some other plugin
-					// after boot) go to the left of everything already there,
-					// instead of being appended to the right
-					sort = newIds.concat(sort);
-				}
-
-				Lampa.Storage.set(STORAGE_SORT, sort);
-
-				order(items);
-				hide(items);
+				apply();
 			}, 400);
 		}
 
@@ -622,6 +732,7 @@
 		injectStyle();
 
 		setTimeout(function () {
+			captureDefaultOrder();
 			apply();
 			observe();
 		}, 1000);
@@ -629,6 +740,7 @@
 		Lampa.Listener.follow('activity', function (event) {
 			if (event.type == 'start' || event.type == 'complite') {
 				setTimeout(function () {
+					captureDefaultOrder();
 					apply();
 					observe();
 				}, 500);
