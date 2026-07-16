@@ -563,8 +563,12 @@
 		// the discovered item list instead of a fixed selector dictionary.
 		function showHideElement($el, show) {
 			if (show) {
-				try { $el.attr('data-hf-hidden', null); } catch (e) {}
-				$el.show();
+				try {
+					if ($el.attr('data-hf-hidden') == '1') {
+						$el.attr('data-hf-hidden', null);
+						$el.show();
+					}
+				} catch (e) {}
 			} else {
 				try { $el.attr('data-hf-hidden', '1'); } catch (e) {}
 				$el.hide();
