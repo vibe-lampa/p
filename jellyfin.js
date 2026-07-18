@@ -1,6 +1,75 @@
 (function () {
     'use strict';
 
+    // One-time cleanup: an earlier build of this plugin stored the sentinel value
+    // 'none' in jellyfin_tmdb_map for cards it explicitly checked and didn't find
+    // on the server. This build doesn't know that sentinel and treats any non-empty
+    // string as a real Jellyfin item id (truthy check) — so those entries made the
+    // "on server" badge show up on cards that aren't actually on the server, and
+    // made opening them fail with an error. Strip any leftover 'none' entries so
+    // those cards go back to being treated as simply "not indexed yet".
+    try {
+        var __jfMap = Lampa.Storage.get('jellyfin_tmdb_map', {});
+        if (__jfMap && typeof __jfMap === 'object') {
+            var __jfChanged = false;
+            for (var __jfKey in __jfMap) {
+                if (__jfMap.hasOwnProperty(__jfKey) && __jfMap[__jfKey] === 'none') {
+                    delete __jfMap[__jfKey];
+                    __jfChanged = true;
+                }
+            }
+            if (__jfChanged) Lampa.Storage.set('jellyfin_tmdb_map', __jfMap);
+        }
+    } catch (e_jfCleanup) {}
+
+    // Second cleanup pass: strip any remembered "last chosen media source / audio
+    // track" per item. This plugin intentionally skips the quality/version picker
+    // on repeat plays of an item once a choice has been remembered — but items that
+    // got "chosen" during the earlier broken build (silently, without a real picker
+    // ever being shown to the user) ended up with a bogus remembered choice, so they
+    // now jump straight into playback instead of showing the picker. Clearing just
+    // this field makes the picker show again; resume position/duration is untouched.
+    try {
+        var __jfPb = Lampa.Storage.get('jellyfin_playback_state_v1', null);
+        if (__jfPb && typeof __jfPb === 'object' && __jfPb.items && typeof __jfPb.items === 'object') {
+            var __jfPbChanged = false;
+            for (var __jfItemId in __jfPb.items) {
+                if (!__jfPb.items.hasOwnProperty(__jfItemId)) continue;
+                var __jfIt = __jfPb.items[__jfItemId];
+                if (__jfIt && typeof __jfIt === 'object' && __jfIt.mediaSourceId) {
+                    delete __jfIt.mediaSourceId;
+                    __jfPbChanged = true;
+                }
+            }
+            if (__jfPbChanged) Lampa.Storage.set('jellyfin_playback_state_v1', __jfPb);
+        }
+    } catch (e_jfPbCleanup) {}
+
+    // Third cleanup pass: the remembered mediaSourceId used to be saved on *any*
+    // player close (including the player closing itself immediately due to a
+    // "video not found or corrupted" error, before a single frame ever played).
+    // That poisoned the remembered choice: the item silently reused that same
+    // (failing) source on every future open, skipping the picker entirely, so
+    // the item looked permanently broken even once the underlying issue was
+    // gone. We can't tell in hindsight whether playback actually started, but a
+    // record with no recorded position/duration is a strong signal it never did
+    // — strip mediaSourceId for those so the picker shows again.
+    try {
+        var __jfPb2 = Lampa.Storage.get('jellyfin_playback_state_v1', null);
+        if (__jfPb2 && typeof __jfPb2 === 'object' && __jfPb2.items && typeof __jfPb2.items === 'object') {
+            var __jfPb2Changed = false;
+            for (var __jfItemId2 in __jfPb2.items) {
+                if (!__jfPb2.items.hasOwnProperty(__jfItemId2)) continue;
+                var __jfIt2 = __jfPb2.items[__jfItemId2];
+                if (__jfIt2 && typeof __jfIt2 === 'object' && __jfIt2.mediaSourceId && !(parseFloat(__jfIt2.positionSec) > 0) && !(parseFloat(__jfIt2.durationSec) > 0)) {
+                    delete __jfIt2.mediaSourceId;
+                    __jfPb2Changed = true;
+                }
+            }
+            if (__jfPb2Changed) Lampa.Storage.set('jellyfin_playback_state_v1', __jfPb2);
+        }
+    } catch (e_jfPbCleanup2) {}
+
     var JELLYFIN_SERVER = '';
     var JELLYFIN_USER = '';
     var JELLYFIN_PASS = '';
@@ -327,12 +396,30 @@
             }
         },
 
+        // Removes a stale tmdb->jellyfin mapping (e.g. the cached item id no longer
+        // exists on the server — deleted, replaced after a library rescan, etc).
+        // Called when a cached id fails to resolve, so the next open does a real
+        // search instead of repeatedly trying the same dead id.
+        forgetTmdbMapping: function (cardType, tmdbId) {
+            try {
+                if (!tmdbId) return;
+                var map = sget('jellyfin_tmdb_map', {});
+                if (!map || typeof map !== 'object') return;
+                var key = String(cardType || 'movie') + ':' + String(tmdbId);
+                if (map.hasOwnProperty(key)) {
+                    delete map[key];
+                    sset('jellyfin_tmdb_map', map);
+                }
+            } catch (e0) {}
+        },
+
         // Merge many [cardType, tmdbId, jellyfinId] triples into storage in one write,
         // instead of one read+write per item (used by the full library index build).
-        rememberTmdbMappingsBulk: function (entries) {
+        rememberTmdbMappingsBulk: function (entries, replace) {
             try {
-                if (!entries || !entries.length) return;
-                var map = sget('jellyfin_tmdb_map', {});
+                entries = entries || [];
+                if (!replace && !entries.length) return;
+                var map = replace ? {} : sget('jellyfin_tmdb_map', {});
                 if (!map || typeof map !== 'object') map = {};
                 for (var i = 0; i < entries.length; i++) {
                     var e = entries[i];
@@ -347,14 +434,201 @@
         // to build/refresh the tmdb->jellyfin id map used for the "on server" poster badge.
         // This lets the badge work for any TMDB card across the whole app (search results,
         // catalog grids, etc.), not just items the user has already opened through Jellyfin.
-        _indexState: { building: false, builtAt: 0 },
+        _indexState: { building: false, builtAt: 0, fullBuiltAt: 0, deltaAt: 0 },
         buildTmdbIndex: function (opts, onDone) {
             opts = opts || {};
             var self = this;
-            if (self._indexState.building) { if (onDone) onDone(false); return; }
+            if (self._indexState.building) { if (onDone) onDone(false, 0, { alreadyBuilding: true }); return; }
             self._indexState.building = true;
             // Safety net: authenticate() has no failure callback, so if auth silently
             // bails out (e.g. missing credentials) make sure we don't get stuck "building" forever.
+            var safetyTimer = setTimeout(function () { self._indexState.building = false; }, 90000);
+
+            self.authenticate(function () {
+                clearTimeout(safetyTimer);
+                var server = String(sget('jellyfin_server', JELLYFIN_SERVER) || '').replace(/\/$/, '');
+                var token = String(self.token || '');
+                var uid = String(self.userId || '');
+                if (!server || !token || !uid) {
+                    self._indexState.building = false;
+                    if (onDone) onDone(false);
+                    return;
+                }
+
+                var NON_VIDEO_TYPES = { music: true, musicvideos: true, books: true, photos: true, playlists: true, boxsets: true };
+
+                var collected = [];
+                var totalFound = 0;
+                var totalScanned = 0;
+                var knownGrandTotal = 0;
+                var failedPages = 0;
+                var abortedJobs = 0;
+                var byType = {
+                    movie: { found: 0, scanned: 0, total: 0 },
+                    tv: { found: 0, scanned: 0, total: 0 }
+                };
+
+                function finish() {
+                    // A full scan that completed without any library section being
+                    // fully given up on (see abortedJobs) represents ground truth
+                    // for the whole library - so replace the map outright instead
+                    // of merging. This is what clears out stale/bad entries (e.g. an
+                    // old unverified title-search guess that got cached against the
+                    // wrong movie) that would otherwise survive forever, since a
+                    // merge only ever adds/overwrites keys it actually finds again
+                    // and never removes ones that no longer belong.
+                    // If any section WAS aborted (network trouble mid-scan), fall
+                    // back to merging so we don't wipe out real entries for the
+                    // parts of the library we didn't get to re-check this time.
+                    self.rememberTmdbMappingsBulk(collected, abortedJobs === 0);
+                    self._indexState.building = false;
+                    var now = Date.now();
+                    self._indexState.builtAt = now;
+                    self._indexState.fullBuiltAt = now;
+                    self._indexState.deltaAt = now;
+                    try { sset('jellyfin_index_built_at', now); } catch (e0) {}
+                    try { sset('jellyfin_index_full_at', now); } catch (e0b) {}
+                    try { sset('jellyfin_index_delta_at', now); } catch (e0c) {}
+                    try {
+                        sset('jellyfin_index_last_counts', {
+                            matched: totalFound, scanned: totalScanned, libraryTotal: knownGrandTotal, at: now,
+                            movie: byType.movie, tv: byType.tv
+                        });
+                    } catch (e0d) {}
+                    // Cards already on screen may have been decorated (and left
+                    // unchecked, see jfDecorateCard) before this index finished -
+                    // give them another pass now that it's complete.
+                    try { jfRescanVisibleCards(); } catch (e1) {}
+                    try { jfUpdateIndexStatusUI(); } catch (e2) {}
+                    if (onDone) onDone(true, totalFound, { scanned: totalScanned, libraryTotal: knownGrandTotal, failedPages: failedPages, abortedKinds: abortedJobs, byType: byType });
+                }
+
+                // Walks a flat list of {parentId, type, cardType} jobs, paging through
+                // each one. Scoping every request to a specific library (ParentId) -
+                // instead of one unscoped query from the user root - matters: on some
+                // servers/accounts a plain Recursive=true query with no ParentId does
+                // not actually walk every library the user can see (e.g. when there
+                // are several separate library folders like "Movies" + "Movies 4K"),
+                // silently returning only a fraction of the real total.
+                function runJobs(jobs) {
+                    function fetchPage(jobIdx, startIndex, attempt, consecFail) {
+                        attempt = attempt || 0;
+                        consecFail = consecFail || 0;
+                        if (jobIdx >= jobs.length) { finish(); return; }
+
+                        var job = jobs[jobIdx];
+                        var limit = 300;
+                        var query = [
+                            'Recursive=true',
+                            'IncludeItemTypes=' + job.type,
+                            'StartIndex=' + startIndex,
+                            'Limit=' + limit,
+                            'Fields=ProviderIds',
+                            'api_key=' + encodeURIComponent(token)
+                        ];
+                        if (job.parentId) query.push('ParentId=' + encodeURIComponent(job.parentId));
+                        var url = server + '/Users/' + encodeURIComponent(uid) + '/Items?' + query.join('&');
+
+                        self.request(url, 'GET', null, function (res) {
+                            var items = (res && (res.Items || res.items)) ? (res.Items || res.items) : [];
+                            var total = 0;
+                            try { total = parseInt(res.TotalRecordCount || res.totalRecordCount || 0, 10) || 0; } catch (eT) { total = 0; }
+                            if (startIndex === 0) { knownGrandTotal += total; if (byType[job.cardType]) byType[job.cardType].total += total; }
+                            totalScanned += items.length;
+                            if (byType[job.cardType]) byType[job.cardType].scanned += items.length;
+
+                            for (var i = 0; i < items.length; i++) {
+                                var it = items[i];
+                                if (!it) continue;
+                                var providers = it.ProviderIds || it.Providerids || {};
+                                var tmdb = providers && (providers.Tmdb || providers.tmdb || providers.TMDb || '');
+                                if (tmdb && it.Id) {
+                                    collected.push([job.cardType, String(tmdb), String(it.Id)]);
+                                    totalFound++;
+                                    if (byType[job.cardType]) byType[job.cardType].found++;
+                                }
+                            }
+
+                            var next = startIndex + limit;
+                            if (next < total && items.length) {
+                                fetchPage(jobIdx, next, 0, 0);
+                            } else {
+                                fetchPage(jobIdx + 1, 0, 0, 0);
+                            }
+                        }, function () {
+                            // A single failed page shouldn't wipe out the rest of the
+                            // library from the index - retry it a couple of times first...
+                            if (attempt < 2) {
+                                setTimeout(function () { fetchPage(jobIdx, startIndex, attempt + 1, consecFail); }, 900);
+                                return;
+                            }
+                            // ...and if it still fails, skip just this one page (better to
+                            // lose ~300 items than everything after this point) and keep
+                            // going, unless several pages in a row are failing, which more
+                            // likely means the server/connection is actually down - in that
+                            // case give up on this one job rather than spinning forever.
+                            failedPages++;
+                            var nextConsecFail = consecFail + 1;
+                            if (nextConsecFail >= 3) {
+                                abortedJobs++;
+                                fetchPage(jobIdx + 1, 0, 0, 0);
+                            } else {
+                                fetchPage(jobIdx, startIndex + limit, 0, nextConsecFail);
+                            }
+                        });
+                    }
+
+                    fetchPage(0, 0, 0, 0);
+                }
+
+                self.getViews(function (views) {
+                    var list = Array.isArray(views) ? views : [];
+                    var jobs = [];
+                    for (var i = 0; i < list.length; i++) {
+                        var v = list[i];
+                        if (!v || !v.Id) continue;
+                        var ct = '';
+                        try { ct = String(v.CollectionType || v.collectionType || '').toLowerCase(); } catch (e0) { ct = ''; }
+                        if (NON_VIDEO_TYPES[ct]) continue;
+                        // Scan for both Movie and Series item types inside every
+                        // video library, regardless of its declared CollectionType -
+                        // some libraries hold mixed content.
+                        jobs.push({ parentId: String(v.Id), type: 'Movie', cardType: 'movie' });
+                        jobs.push({ parentId: String(v.Id), type: 'Series', cardType: 'tv' });
+                    }
+                    if (!jobs.length) {
+                        // No per-library views came back (or all got filtered out) -
+                        // fall back to the old unscoped root query rather than indexing nothing.
+                        jobs.push({ parentId: '', type: 'Movie', cardType: 'movie' });
+                        jobs.push({ parentId: '', type: 'Series', cardType: 'tv' });
+                    }
+                    runJobs(jobs);
+                }, function () {
+                    // /UserViews failed entirely - fall back to the old unscoped query
+                    // rather than aborting the whole index build.
+                    runJobs([
+                        { parentId: '', type: 'Movie', cardType: 'movie' },
+                        { parentId: '', type: 'Series', cardType: 'tv' }
+                    ]);
+                });
+            });
+        },
+
+        // Lightweight follow-up to buildTmdbIndex: instead of walking the entire
+        // library again, asks Jellyfin only for items whose metadata changed since
+        // the last successful scan (MinDateLastSaved - the same delta mechanism
+        // Jellyfin's own apps use for incremental sync). This is what lets new
+        // additions to the server show up in the "on server" badge/direct-match
+        // without redoing a full multi-thousand-item scan every time.
+        syncTmdbIndexDelta: function (opts, onDone) {
+            opts = opts || {};
+            var self = this;
+            if (self._indexState.building) { if (onDone) onDone(false, 0, { alreadyBuilding: true }); return; }
+
+            var sinceMs = self._indexState.deltaAt || parseInt(sget('jellyfin_index_delta_at', 0), 10) || parseInt(sget('jellyfin_index_full_at', 0), 10) || 0;
+            if (!sinceMs) { if (onDone) onDone(false); return; } // never indexed yet - caller should do a full build instead
+
+            self._indexState.building = true;
             var safetyTimer = setTimeout(function () { self._indexState.building = false; }, 60000);
 
             self.authenticate(function () {
@@ -368,75 +642,115 @@
                     return;
                 }
 
-                var kinds = [
-                    { type: 'Movie', cardType: 'movie' },
-                    { type: 'Series', cardType: 'tv' }
-                ];
+                // Look a bit further back than the exact last sync time to absorb
+                // clock drift and items that were still being written when the
+                // previous sync ran.
+                var sinceIso = new Date(sinceMs - 5 * 60 * 1000).toISOString();
+                var NON_VIDEO_TYPES = { music: true, musicvideos: true, books: true, photos: true, playlists: true, boxsets: true };
                 var collected = [];
                 var totalFound = 0;
+                var totalScanned = 0;
 
-                function fetchPage(kindIdx, startIndex) {
-                    if (kindIdx >= kinds.length) {
-                        self.rememberTmdbMappingsBulk(collected);
-                        self._indexState.building = false;
-                        self._indexState.builtAt = Date.now();
-                        try { sset('jellyfin_index_built_at', self._indexState.builtAt); } catch (e0) {}
-                        if (onDone) onDone(true, totalFound);
-                        return;
+                function finish(ok) {
+                    if (ok && collected.length) self.rememberTmdbMappingsBulk(collected);
+                    self._indexState.building = false;
+                    var now = Date.now();
+                    self._indexState.deltaAt = now;
+                    try { sset('jellyfin_index_delta_at', now); } catch (e0) {}
+                    if (ok && totalFound) {
+                        try { jfRescanVisibleCards(); } catch (e1) {}
                     }
+                    try { jfUpdateIndexStatusUI(); } catch (e2) {}
+                    if (onDone) onDone(!!ok, totalFound, { scanned: totalScanned });
+                }
 
-                    var kind = kinds[kindIdx];
+                function fetchPage(views, viewIdx, startIndex, attempt) {
+                    attempt = attempt || 0;
+                    if (viewIdx >= views.length) { finish(true); return; }
+                    var view = views[viewIdx];
                     var limit = 300;
                     var query = [
                         'Recursive=true',
-                        'IncludeItemTypes=' + kind.type,
+                        'IncludeItemTypes=Movie,Series',
+                        'MinDateLastSaved=' + encodeURIComponent(sinceIso),
                         'StartIndex=' + startIndex,
                         'Limit=' + limit,
                         'Fields=ProviderIds',
                         'api_key=' + encodeURIComponent(token)
                     ];
+                    if (view.parentId) query.push('ParentId=' + encodeURIComponent(view.parentId));
                     var url = server + '/Users/' + encodeURIComponent(uid) + '/Items?' + query.join('&');
 
                     self.request(url, 'GET', null, function (res) {
                         var items = (res && (res.Items || res.items)) ? (res.Items || res.items) : [];
                         var total = 0;
                         try { total = parseInt(res.TotalRecordCount || res.totalRecordCount || 0, 10) || 0; } catch (eT) { total = 0; }
+                        totalScanned += items.length;
 
                         for (var i = 0; i < items.length; i++) {
                             var it = items[i];
                             if (!it) continue;
+                            var cardType = String(it.Type || '').toLowerCase() === 'series' ? 'tv' : 'movie';
                             var providers = it.ProviderIds || it.Providerids || {};
                             var tmdb = providers && (providers.Tmdb || providers.tmdb || providers.TMDb || '');
-                            if (tmdb && it.Id) { collected.push([kind.cardType, String(tmdb), String(it.Id)]); totalFound++; }
+                            if (tmdb && it.Id) { collected.push([cardType, String(tmdb), String(it.Id)]); totalFound++; }
                         }
 
                         var next = startIndex + limit;
-                        if (next < total && items.length) {
-                            fetchPage(kindIdx, next);
-                        } else {
-                            fetchPage(kindIdx + 1, 0);
-                        }
+                        if (next < total && items.length) fetchPage(views, viewIdx, next, 0);
+                        else fetchPage(views, viewIdx + 1, 0, 0);
                     }, function () {
-                        // On failure just move to the next library rather than aborting entirely.
-                        fetchPage(kindIdx + 1, 0);
+                        if (attempt < 2) {
+                            setTimeout(function () { fetchPage(views, viewIdx, startIndex, attempt + 1); }, 900);
+                            return;
+                        }
+                        // Give up on this one library's delta only - worst case those
+                        // few new items just get picked up on the next sync a bit later.
+                        fetchPage(views, viewIdx + 1, 0, 0);
                     });
                 }
 
-                fetchPage(0, 0);
+                self.getViews(function (viewsRaw) {
+                    var list = Array.isArray(viewsRaw) ? viewsRaw : [];
+                    var views = [];
+                    for (var i = 0; i < list.length; i++) {
+                        var v = list[i];
+                        if (!v || !v.Id) continue;
+                        var ct = '';
+                        try { ct = String(v.CollectionType || v.collectionType || '').toLowerCase(); } catch (e0) { ct = ''; }
+                        if (NON_VIDEO_TYPES[ct]) continue;
+                        views.push({ parentId: String(v.Id) });
+                    }
+                    if (!views.length) views.push({ parentId: '' });
+                    fetchPage(views, 0, 0, 0);
+                }, function () {
+                    fetchPage([{ parentId: '' }], 0, 0, 0);
+                });
             });
         },
 
-        // Builds the index automatically in the background, at most once per TTL,
-        // and only if the user is authenticated. Safe to call many times (no-ops otherwise).
+        // Keeps the tmdb->jellyfin index warm automatically, without ever forcing
+        // the person to press a button:
+        // - a full library walk happens at most once a week (also catches items
+        //   that were deleted/retagged, which a delta sync can't detect), and
+        // - in between, a cheap delta sync (only items changed since last check)
+        //   runs periodically to pick up newly added movies/shows quickly.
+        // Only runs at all if the user is authenticated. Safe to call repeatedly.
         ensureTmdbIndex: function (force) {
             var self = this;
             try {
                 if (!sget('jellyfin_token', '')) return;
                 if (self._indexState.building) return;
-                var builtAt = self._indexState.builtAt || parseInt(sget('jellyfin_index_built_at', 0), 10) || 0;
-                var ttl = 12 * 60 * 60 * 1000; // 12h
-                if (!force && builtAt && (Date.now() - builtAt) < ttl) return;
-                self.buildTmdbIndex({}, function () {});
+                var fullAt = self._indexState.fullBuiltAt || parseInt(sget('jellyfin_index_full_at', 0), 10) || 0;
+                var deltaAt = self._indexState.deltaAt || parseInt(sget('jellyfin_index_delta_at', 0), 10) || 0;
+                var fullTtl = 7 * 24 * 60 * 60 * 1000; // 7 days
+                var deltaTtl = 20 * 60 * 1000; // 20 minutes
+
+                if (force || !fullAt || (Date.now() - fullAt) >= fullTtl) {
+                    self.buildTmdbIndex({}, function () {});
+                } else if (!deltaAt || (Date.now() - deltaAt) >= deltaTtl) {
+                    self.syncTmdbIndexDelta({}, function () {});
+                }
             } catch (e0) {}
         },
 
@@ -1342,12 +1656,23 @@
                 } catch (e1) {}
             }.bind(this);
 
+            // Only true once we've actually seen playback progress (a real timeupdate
+            // with a positive current time). Until then, 'ended'/'destroy' firing just
+            // means the player closed — possibly immediately, due to a load error —
+            // and must NOT persist the mediaSourceId/audioIndex "remembered choice".
+            // Otherwise a single failed attempt permanently poisons the item: every
+            // future open silently reuses that same (failing) source and skips the
+            // picker, so the item looks broken forever even after the real issue
+            // (server/network) is gone.
+            pb.everPlayed = false;
+
             pb.handlers = {};
             pb.handlers.timeupdate = function (e) {
                 try {
                     pb.positionSec = e && typeof e.current !== 'undefined' ? (parseFloat(e.current) || 0) : pb.positionSec;
                     pb.durationSec = e && typeof e.duration !== 'undefined' ? (parseFloat(e.duration) || 0) : pb.durationSec;
-                    updateLocal();
+                    if (pb.positionSec > 0) pb.everPlayed = true;
+                    if (pb.everPlayed) updateLocal();
                     reportProgress(false, false);
                 } catch (e0) {}
             };
@@ -1355,13 +1680,13 @@
             pb.handlers.play = function () { reportProgress(false, true); };
             pb.handlers.ended = function () {
                 try {
-                    updateLocal();
+                    if (pb.everPlayed) updateLocal();
                     this.stopPlaybackSync({ playedToCompletion: true });
                 } catch (e0) {}
             }.bind(this);
             pb.handlers.destroy = function () {
                 try {
-                    updateLocal();
+                    if (pb.everPlayed) updateLocal();
                     this.stopPlaybackSync({});
                 } catch (e0) {}
             }.bind(this);
@@ -2439,7 +2764,31 @@
                         var stopNoty = Jellyfin.delayedNoty('Jellyfin: открываю...', 450);
                         Jellyfin.authenticate(function () {
                             Jellyfin.getItemDetails(jfId, function (full) {
-                                Jellyfin.openPlayMenu(full || { Id: jfId, Name: title }, function () {}, null, stopNoty);
+                                if (full && full.Id) {
+                                    Jellyfin.openPlayMenu(full, function () {}, null, stopNoty);
+                                    return;
+                                }
+                                // Stale id (deleted / rescanned item). Forget any tmdb
+                                // mapping that pointed here and fall back to opening the
+                                // regular card page instead of sending the player a stub.
+                                try { stopNoty(); } catch (e0) {}
+                                try {
+                                    var src3 = String(card.source || '');
+                                    if (src3 === 'tmdb' && card.id) {
+                                        var t2 = String(card.card_type || '').toLowerCase();
+                                        if (!t2) t2 = (card.name || card.original_name) ? 'tv' : 'movie';
+                                        Jellyfin.forgetTmdbMapping(t2, card.id);
+                                    }
+                                } catch (e1) {}
+                                try {
+                                    Lampa.Activity.push({
+                                        component: 'full',
+                                        id: card.id,
+                                        method: card.original_name ? 'tv' : 'movie',
+                                        card: card,
+                                        source: card.source
+                                    });
+                                } catch (e2) {}
                             });
                         });
                         return;
@@ -3169,7 +3518,7 @@
         search: function (query, year, callback) {
             this.authenticate(function (token) {
                 var server = sget('jellyfin_server', JELLYFIN_SERVER).replace(/\/$/, '');
-                var url = server + '/Users/' + encodeURIComponent(this.userId) + '/Items?searchTerm=' + encodeURIComponent(query) + '&IncludeItemTypes=Movie,Series&Recursive=true&limit=50&Fields=ProductionYear,Name&api_key=' + encodeURIComponent(token);
+                var url = server + '/Users/' + encodeURIComponent(this.userId) + '/Items?searchTerm=' + encodeURIComponent(query) + '&IncludeItemTypes=Movie,Series&Recursive=true&limit=50&Fields=ProductionYear,Name,ProviderIds&api_key=' + encodeURIComponent(token);
 
                 this.request(url, 'GET', null, function (res) {
                     var items = (res && res.Items) ? res.Items : [];
@@ -3637,7 +3986,7 @@
         }
     };
 
-    function showSelection(items, onBack) {
+    function showSelection(items, onBack, tmdbInfo) {
         var list = items.map(function (item) {
             return {
                 title: item.Name + (item.ProductionYear ? ' (' + item.ProductionYear + ')' : ''),
@@ -3659,8 +4008,16 @@
                     if (onBack) onBack();
                     return;
                 }
-                if (a.item.Type === 'Series') Jellyfin.openPlayMenu(a.item, function () { showSelection(items, onBack); });
-                else Jellyfin.openPlayMenu(a.item, function () { showSelection(items, onBack); });
+                // Remember the match so this exact card gets the "on server" badge
+                // and opens instantly next time, instead of doing a fresh name
+                // search again every single time it's opened.
+                try {
+                    if (tmdbInfo && tmdbInfo.tmdbId && a.item.Id) {
+                        Jellyfin.rememberTmdbMapping(tmdbInfo.cardType, tmdbInfo.tmdbId, a.item.Id);
+                    }
+                } catch (eRem) {}
+                if (a.item.Type === 'Series') Jellyfin.openPlayMenu(a.item, function () { showSelection(items, onBack, tmdbInfo); });
+                else Jellyfin.openPlayMenu(a.item, function () { showSelection(items, onBack, tmdbInfo); });
             }
         });
     }
@@ -3686,23 +4043,60 @@
                 try { jfId = Jellyfin.findJellyfinIdByTmdb(cardType, movie && movie.id ? movie.id : ''); } catch (e3) { jfId = ''; }
             }
 
+            var title = movie.title || movie.name;
+            var year = (movie.release_date || movie.first_air_date || '').split('-')[0];
+            var tmdbId = movie && movie.id ? String(movie.id) : '';
+            var tmdbInfo = { cardType: cardType, tmdbId: tmdbId };
+
+            var doRealSearch = function () {
+                var stopSearchNoty = Jellyfin.delayedNoty('Jellyfin: Поиск...', 0);
+                Jellyfin.search(title, year, function (items) {
+                    try { stopSearchNoty(); } catch (e0) {}
+                    try {
+                        // A title-text search match is NOT the same thing as a
+                        // confirmed TMDB match - "Джентльмены" and "Джентльмены
+                        // удачи" can both come back as the single closest text
+                        // result even though they're different movies. Only trust
+                        // (and cache) this as "found on server" if the item's own
+                        // ProviderIds.Tmdb actually equals the id we're looking for.
+                        if (tmdbId && items && items.length === 1 && items[0] && items[0].Id) {
+                            var m0 = items[0];
+                            var providers0 = m0.ProviderIds || m0.Providerids || {};
+                            var itemTmdb = providers0 && (providers0.Tmdb || providers0.tmdb || providers0.TMDb || '');
+                            if (itemTmdb && String(itemTmdb) === String(tmdbId)) {
+                                Jellyfin.rememberTmdbMapping(cardType, tmdbId, m0.Id);
+                            }
+                        }
+                    } catch (eRem2) {}
+                    showSelection(items, restore, tmdbInfo);
+                });
+            };
+
             if (jfId) {
                 var stopNoty = Jellyfin.delayedNoty('Jellyfin: открываю...', 450);
                 Jellyfin.authenticate(function () {
                     Jellyfin.getItemDetails(jfId, function (full) {
-                        Jellyfin.openPlayMenu(full || { Id: jfId, Name: movie.title || movie.name || 'Jellyfin' }, restore, null, stopNoty);
+                        var fullProviders = full && (full.ProviderIds || full.Providerids) || {};
+                        var fullTmdb = fullProviders && (fullProviders.Tmdb || fullProviders.tmdb || fullProviders.TMDb || '');
+                        if (full && full.Id && fullTmdb && String(fullTmdb) === String(tmdbId)) {
+                            Jellyfin.openPlayMenu(full, restore, null, stopNoty);
+                        } else {
+                            // Cached id is either stale (item deleted / library rescanned
+                            // with a new internal Id) or was a bad mapping to begin with
+                            // (e.g. saved by an old, unverified title-search match that
+                            // pointed at a completely different movie). Either way, don't
+                            // trust it - drop it and fall back to a real search instead of
+                            // silently opening/playing the wrong title.
+                            try { stopNoty(); } catch (e0) {}
+                            try { Jellyfin.forgetTmdbMapping(cardType, tmdbId); } catch (e1) {}
+                            doRealSearch();
+                        }
                     });
                 });
                 return;
             }
 
-            var title = movie.title || movie.name;
-            var year = (movie.release_date || movie.first_air_date || '').split('-')[0];
-            var stopSearchNoty = Jellyfin.delayedNoty('Jellyfin: Поиск...', 0);
-            Jellyfin.search(title, year, function (items) {
-                try { stopSearchNoty(); } catch (e0) {}
-                showSelection(items, restore);
-            });
+            doRealSearch();
         });
     }
 
@@ -4164,6 +4558,104 @@
         try { return Lampa.Storage.get('jellyfin_poster_badge', true) !== false; } catch (e) { return true; }
     }
 
+    // True once the tmdb->jellyfin index has finished a full library walk at least
+    // once (this session or a previous one). Used to decide whether a card that
+    // currently has no match should be locked out permanently, or just hasn't been
+    // checked against a complete index yet.
+    function jfIndexReady() {
+        try {
+            if (Jellyfin._indexState && Jellyfin._indexState.builtAt) return true;
+        } catch (e0) {}
+        try {
+            return !!(parseInt(Lampa.Storage.get('jellyfin_index_built_at', 0), 10) || 0);
+        } catch (e1) {
+            return false;
+        }
+    }
+
+    function jfFormatIndexTime(ts) {
+        try {
+            var d = new Date(ts);
+            var p = function (n) { return (n < 10 ? '0' : '') + n; };
+            return p(d.getDate()) + '.' + p(d.getMonth() + 1) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+        } catch (e0) {
+            return '';
+        }
+    }
+
+    // Builds the description text for the "index status" settings row from the
+    // counts stored after the last successful scan, so the person can see how
+    // many movies/shows on the server are actually matched without pressing
+    // anything.
+    function jfIndexStatusDescription() {
+        try {
+            var last = Lampa.Storage.get('jellyfin_index_last_counts', null);
+            if (!last || typeof last !== 'object' || !last.at) {
+                return 'Ещё не сканировалось. Проверка запускается автоматически в фоне.';
+            }
+            var lines = [];
+            if (last.movie) lines.push('Фильмов сопоставлено: ' + (last.movie.found || 0) + (last.movie.total ? ' из ' + last.movie.total : ''));
+            if (last.tv) lines.push('Сериалов сопоставлено: ' + (last.tv.found || 0) + (last.tv.total ? ' из ' + last.tv.total : ''));
+            if (!lines.length) lines.push('Найдено совпадений: ' + (last.matched || 0) + (last.libraryTotal ? ' из ' + last.libraryTotal : ''));
+            var text = lines.join('. ') + '. Обновлено: ' + jfFormatIndexTime(last.at);
+            var deltaAt = parseInt(Lampa.Storage.get('jellyfin_index_delta_at', 0), 10) || 0;
+            if (deltaAt && deltaAt !== last.at) {
+                text += '. Проверка новинок: ' + jfFormatIndexTime(deltaAt);
+            }
+            return text;
+        } catch (e0) {
+            return '';
+        }
+    }
+
+    // Cached reference to the currently-rendered "Библиотека Jellyfin" settings
+    // row (captured in its onRender hook), so background scans can refresh the
+    // displayed text in place - without re-registering the param, which would
+    // create a duplicate row every time (Lampa.SettingsApi.addParam always adds,
+    // it never updates an existing row by name).
+    var jfIndexRowEl = null;
+
+    // Updates the index-status row's description text in place, if that settings
+    // screen happens to be open right now. If it isn't currently on screen, this
+    // is a no-op - the row's own onRender hook already recomputes the text fresh
+    // every time the person opens/re-opens that settings screen, so nothing is lost.
+    function jfUpdateIndexStatusUI() {
+        try {
+            if (!jfIndexRowEl || !jfIndexRowEl.closest) return;
+            if (!jfIndexRowEl.closest('body').length) { jfIndexRowEl = null; return; }
+            var descr = jfIndexRowEl.find('.settings-param__descr');
+            if (!descr.length) descr = $('<div class="settings-param__descr"></div>').appendTo(jfIndexRowEl);
+            descr.text(jfIndexStatusDescription());
+        } catch (e0) {}
+    }
+
+    function jfRebuildIndexHandler() {
+        if (Jellyfin._indexState && Jellyfin._indexState.building) {
+            Lampa.Noty.show('Jellyfin: проверка библиотеки уже выполняется, подождите');
+            return;
+        }
+        Lampa.Noty.show('Jellyfin: проверяю библиотеку...');
+        Jellyfin.buildTmdbIndex({}, function (ok, count, diag) {
+            if (diag && diag.alreadyBuilding) {
+                Lampa.Noty.show('Jellyfin: проверка библиотеки уже выполняется, подождите');
+                return;
+            }
+            if (ok) {
+                var msg = '';
+                if (diag && diag.byType) {
+                    msg = 'Jellyfin: фильмов ' + (diag.byType.movie.found || 0) + ' из ' + (diag.byType.movie.total || 0)
+                        + ', сериалов ' + (diag.byType.tv.found || 0) + ' из ' + (diag.byType.tv.total || 0);
+                } else {
+                    msg = 'Jellyfin: найдено совпадений ' + (count || 0) + (diag ? ' из ' + (diag.scanned || 0) + ' просканированных' : '');
+                }
+                if (diag && diag.failedPages) msg += '. Сбоев страниц: ' + diag.failedPages;
+                if (diag && diag.abortedKinds) msg += '. Некоторые разделы библиотеки не досканированы полностью';
+                Lampa.Noty.show(msg);
+            }
+            else Lampa.Noty.show('Jellyfin: не удалось проверить библиотеку (нет соединения с сервером)');
+        });
+    }
+
     function jfCardMediaMethod(data) {
         if (!data) return '';
         if (data.method === 'tv' || data.method === 'movie') return data.method;
@@ -4487,11 +4979,20 @@
             var id = jfCardMediaId(data);
             if (!method || !id) return;
 
-            el.jellyfin_badge_checked = true;
-
             var jfId = '';
             try { jfId = Jellyfin.findJellyfinIdByTmdb(method, id); } catch (e1) { jfId = ''; }
-            if (!jfId) return;
+            if (!jfId) {
+                // Only lock this card out permanently once we know the background
+                // index has completed a full pass at least once. If it's still
+                // building (e.g. we're on the very first cards rendered right
+                // after app start), leave it unchecked so a later rescan -
+                // triggered when the index finishes - can pick it up instead of
+                // this card being stuck with a stale "not found" forever.
+                if (jfIndexReady()) el.jellyfin_badge_checked = true;
+                return;
+            }
+
+            el.jellyfin_badge_checked = true;
 
             var $view = $card.find('.card__view').first();
             if (!$view.length) return;
@@ -4813,6 +5314,18 @@
             });
         } });
         Lampa.SettingsApi.addParam({ component: 'jellyfin_settings', param: { type: 'button', name: 'jellyfin_quick_connect' }, field: { name: 'Быстрое подключение', description: 'Войти по коду (Quick Connect) без логина/пароля' }, onChange: function () { Jellyfin.quickConnectUI(); } });
+        Lampa.SettingsApi.addParam({
+            component: 'jellyfin_settings',
+            param: { type: 'button', name: 'jellyfin_rebuild_index' },
+            field: { name: 'Библиотека Jellyfin', description: jfIndexStatusDescription() },
+            onChange: jfRebuildIndexHandler,
+            onRender: function (item) {
+                jfIndexRowEl = item;
+                var descr = item.find('.settings-param__descr');
+                if (!descr.length) descr = $('<div class="settings-param__descr"></div>').appendTo(item);
+                descr.text(jfIndexStatusDescription());
+            }
+        });
         Lampa.SettingsApi.addParam({ component: 'jellyfin_settings', param: { type: 'button', name: 'jellyfin_logout' }, field: { name: 'Выйти', description: 'Удалить сохранённый токен Jellyfin' }, onChange: function () { Jellyfin.clearAuth(); try { Lampa.Noty.show('Jellyfin: токен очищен'); } catch (e0) {} } });
 
         Lampa.SettingsApi.addParam({
@@ -4876,19 +5389,6 @@
 
         Lampa.SettingsApi.addParam({
             component: 'jellyfin_settings',
-            param: { type: 'button', name: 'jellyfin_rebuild_index' },
-            field: { name: 'Обновить базу значков', description: 'Перечитать всю библиотеку Jellyfin, чтобы значки на постерах были актуальны' },
-            onChange: function () {
-                Lampa.Noty.show('Jellyfin: обновление базы значков...');
-                Jellyfin.buildTmdbIndex({}, function (ok, count) {
-                    if (ok) Lampa.Noty.show('Jellyfin: база значков обновлена (' + (count || 0) + ')');
-                    else Lampa.Noty.show('Jellyfin: не удалось обновить базу значков');
-                });
-            }
-        });
-
-        Lampa.SettingsApi.addParam({
-            component: 'jellyfin_settings',
             param: { type: 'button', name: 'jellyfin_icon_style_btn' },
             field: { name: 'Иконка', description: 'Выбрать стиль иконки Jellyfin' },
             onChange: function () {
@@ -4938,6 +5438,12 @@
 
         jfInitPosterBadge();
         setTimeout(function () { Jellyfin.ensureTmdbIndex(); }, 4000);
+        // Keep the index warm for as long as the app stays open: this is what
+        // makes newly added movies/shows on the server show up (badge + direct
+        // match) without the person ever having to press "Обновить базу значков"
+        // themselves. ensureTmdbIndex() itself decides whether that means a cheap
+        // delta sync or, rarely, a full rebuild - see its own TTL logic.
+        setInterval(function () { Jellyfin.ensureTmdbIndex(); }, 15 * 60 * 1000);
 
         Lampa.Listener.follow('menu', function (e) {
             try {
