@@ -4880,8 +4880,12 @@
         } catch (e0) {}
     }
 
-    function jfBadgePos() {
-        try { return String(Lampa.Storage.get('jellyfin_badge_pos', 'tl') || 'tl'); } catch (e0) { return 'tl'; }
+    function jfBadgePosKey(elementId) {
+        return elementId === 'badge_wide' ? 'jellyfin_badge_pos_wide' : 'jellyfin_badge_pos';
+    }
+
+    function jfBadgePos(elementId) {
+        try { return String(Lampa.Storage.get(jfBadgePosKey(elementId), 'tl') || 'tl'); } catch (e0) { return 'tl'; }
     }
 
     var JF_BADGE_OFFSET_STEP = 2;
@@ -4909,41 +4913,49 @@
         return jfClampBadgeOffset(n, fallback);
     }
 
-    function jfReadBadgeOffset(axis) {
+    function jfBadgeOffsetKey(axis, elementId) {
+        var wide = elementId === 'badge_wide';
+        if (axis === 'x') return wide ? 'jellyfin_badge_off_x_wide' : 'jellyfin_badge_off_x';
+        return wide ? 'jellyfin_badge_off_y_wide' : 'jellyfin_badge_off_y';
+    }
+
+    function jfReadBadgeOffset(axis, elementId) {
         var fallback = axis === 'x' ? 4 : 4;
-        var key = axis === 'x' ? 'jellyfin_badge_off_x' : 'jellyfin_badge_off_y';
+        var key = jfBadgeOffsetKey(axis, elementId);
         var raw = '';
         try { raw = Lampa.Storage.get(key, ''); } catch (e0) { raw = ''; }
         if (raw) return jfNormalizeStoredBadgeOffset(raw, fallback);
 
-        var legacyKey = axis === 'x' ? 'jellyfin_badge_offset_x' : 'jellyfin_badge_offset_y';
-        var legacy = '';
-        try { legacy = Lampa.Storage.get(legacyKey, ''); } catch (e1) { legacy = ''; }
-        if (legacy !== '' && legacy != null) {
-            var em = parseFloat(String(legacy).replace(/[^\d.\-]/g, ''));
-            if (!isNaN(em) && isFinite(em)) {
-                var base = axis === 'x' ? 12.75 : (12.75 * 1.5);
-                var pct = (em / base) * 100;
-                var clamped = jfClampBadgeOffset(pct, fallback);
-                try { Lampa.Storage.set(key, String(clamped) + 'p'); } catch (e2) {}
-                return clamped;
+        if (elementId !== 'badge_wide') {
+            var legacyKey = axis === 'x' ? 'jellyfin_badge_offset_x' : 'jellyfin_badge_offset_y';
+            var legacy = '';
+            try { legacy = Lampa.Storage.get(legacyKey, ''); } catch (e1) { legacy = ''; }
+            if (legacy !== '' && legacy != null) {
+                var em = parseFloat(String(legacy).replace(/[^\d.\-]/g, ''));
+                if (!isNaN(em) && isFinite(em)) {
+                    var base = axis === 'x' ? 12.75 : (12.75 * 1.5);
+                    var pct = (em / base) * 100;
+                    var clamped = jfClampBadgeOffset(pct, fallback);
+                    try { Lampa.Storage.set(key, String(clamped) + 'p'); } catch (e2) {}
+                    return clamped;
+                }
             }
         }
         return jfClampBadgeOffset(fallback, 0);
     }
 
-    function jfWriteBadgeOffset(axis, value) {
-        var key = axis === 'x' ? 'jellyfin_badge_off_x' : 'jellyfin_badge_off_y';
+    function jfWriteBadgeOffset(axis, value, elementId) {
+        var key = jfBadgeOffsetKey(axis, elementId);
         var v = jfClampBadgeOffset(value, axis === 'x' ? 4 : 4);
         try { Lampa.Storage.set(key, String(v) + 'p'); } catch (e0) {}
         jfApplyBadgeCss();
-        jfRefreshBadgePosEditorVisuals();
+        jfRefreshBadgePosEditorVisuals(elementId);
     }
 
-    function jfNudgeBadgeOffset(dx, dy) {
-        var anchor = jfBadgePos();
-        var nextX = jfReadBadgeOffset('x');
-        var nextY = jfReadBadgeOffset('y');
+    function jfNudgeBadgeOffset(dx, dy, elementId) {
+        var anchor = jfBadgePos(elementId);
+        var nextX = jfReadBadgeOffset('x', elementId);
+        var nextY = jfReadBadgeOffset('y', elementId);
         if (dx) {
             if (anchor.indexOf('r') >= 0) nextX -= dx;
             else nextX += dx;
@@ -4952,8 +4964,8 @@
             if (anchor.indexOf('b') >= 0) nextY -= dy;
             else nextY += dy;
         }
-        if (dx) jfWriteBadgeOffset('x', nextX);
-        if (dy) jfWriteBadgeOffset('y', nextY);
+        if (dx) jfWriteBadgeOffset('x', nextX, elementId);
+        if (dy) jfWriteBadgeOffset('y', nextY, elementId);
     }
 
     function jfExitBadgeEditMode() {
@@ -4977,10 +4989,10 @@
     }
 
     function jfBadgePosNudgeByDir(elementId, dir) {
-        if (dir === 'left') jfNudgeBadgeOffset(-JF_BADGE_OFFSET_STEP, 0);
-        else if (dir === 'right') jfNudgeBadgeOffset(JF_BADGE_OFFSET_STEP, 0);
-        else if (dir === 'up') jfNudgeBadgeOffset(0, -JF_BADGE_OFFSET_STEP);
-        else if (dir === 'down') jfNudgeBadgeOffset(0, JF_BADGE_OFFSET_STEP);
+        if (dir === 'left') jfNudgeBadgeOffset(-JF_BADGE_OFFSET_STEP, 0, elementId);
+        else if (dir === 'right') jfNudgeBadgeOffset(JF_BADGE_OFFSET_STEP, 0, elementId);
+        else if (dir === 'up') jfNudgeBadgeOffset(0, -JF_BADGE_OFFSET_STEP, elementId);
+        else if (dir === 'down') jfNudgeBadgeOffset(0, JF_BADGE_OFFSET_STEP, elementId);
         jfRefreshBadgePosEditorVisuals(elementId);
     }
 
@@ -5003,10 +5015,10 @@
         try { document.addEventListener('keydown', jfHandleBadgePosKeydown, true); } catch (e) {}
     }
 
-    function jfPreviewDotPos() {
-        var anchor = jfBadgePos();
-        var x = jfReadBadgeOffset('x');
-        var y = jfReadBadgeOffset('y');
+    function jfPreviewDotPos(elementId) {
+        var anchor = jfBadgePos(elementId);
+        var x = jfReadBadgeOffset('x', elementId);
+        var y = jfReadBadgeOffset('y', elementId);
         var left = x;
         var top = y;
         if (anchor.indexOf('r') >= 0) left = 100 - x;
@@ -5022,12 +5034,12 @@
         if (!$editor.length) return;
         try {
             var $dot = $editor.find('.jf-ui-pos-editor__dot');
-            var pos = jfPreviewDotPos();
+            var pos = jfPreviewDotPos(elementId);
             $dot.css({ left: pos.left, top: pos.top });
         } catch (e0) {}
         try {
-            var x = jfReadBadgeOffset('x');
-            var y = jfReadBadgeOffset('y');
+            var x = jfReadBadgeOffset('x', elementId);
+            var y = jfReadBadgeOffset('y', elementId);
             $editor.find('.jf-ui-pos-editor__status').text('X ' + x + '% - Y ' + y + '%');
             $editor.find('.jf-ui-pos-editor__hint').text('OK — настройка стрелками пульта');
         } catch (e1) {}
@@ -5035,6 +5047,7 @@
 
     function jfRefreshBadgePosEditorVisualsAll() {
         jfRefreshBadgePosEditorVisualsNow('badge');
+        jfRefreshBadgePosEditorVisualsNow('badge_wide');
     }
 
     function jfRefreshBadgePosEditorVisualsDebounced(elementId) {
@@ -5045,13 +5058,15 @@
         jfRefreshBadgePosEditorVisualsDebounced(elementId);
     }
 
-    function jfRenderBadgePosEditor($item) {
+    function jfRenderBadgePosEditor($item, elementId) {
+        elementId = elementId || 'badge';
+        var isWide = elementId === 'badge_wide';
         jfEnsureBadgePosKeyCapture();
         try { $item.addClass('jf-ui-pos-wrap'); } catch (e0) {}
         var $editor = $(
-            '<div class="settings-param selector jf-ui-pos-editor" data-static="true" data-jf-ui-editor="badge">' +
+            '<div class="settings-param selector jf-ui-pos-editor" data-static="true" data-jf-ui-editor="' + elementId + '">' +
                 '<div class="jf-ui-pos-editor__layout">' +
-                    '<div class="jf-ui-pos-editor__preview" aria-hidden="true">' +
+                    '<div class="jf-ui-pos-editor__preview' + (isWide ? ' jf-ui-pos-editor__preview--wide' : '') + '" aria-hidden="true">' +
                         '<div class="jf-ui-pos-editor__card"></div>' +
                         '<div class="jf-ui-pos-editor__dot"></div>' +
                     '</div>' +
@@ -5067,25 +5082,25 @@
                 '<div class="jf-ui-pos-editor__hint"></div>' +
             '</div>'
         );
-        $editor.on('hover:enter', function () { jfToggleBadgeEditMode('badge'); });
+        $editor.on('hover:enter', function () { jfToggleBadgeEditMode(elementId); });
         $editor.on('hover:focus', function () { try { $editor.addClass('focus'); } catch (e0) {} });
         $editor.on('hover:blur', function () {
-            if (jfBadgeEditMode === 'badge') jfExitBadgeEditMode();
+            if (jfBadgeEditMode === elementId) jfExitBadgeEditMode();
             try { $editor.removeClass('focus'); } catch (e0) {}
         });
         $editor.find('[data-ui-dir]').on('click', function (ev) {
             if (ev && ev.stopPropagation) ev.stopPropagation();
-            jfEnterBadgeEditMode('badge');
-            jfBadgePosNudgeByDir('badge', String($(this).data('ui-dir') || ''));
+            jfEnterBadgeEditMode(elementId);
+            jfBadgePosNudgeByDir(elementId, String($(this).data('ui-dir') || ''));
         });
         $item.append($editor);
-        jfRefreshBadgePosEditorVisuals('badge');
+        jfRefreshBadgePosEditorVisuals(elementId);
     }
 
-    function jfBadgeCss() {
-        var pos = jfBadgePos();
-        var x = jfReadBadgeOffset('x');
-        var y = jfReadBadgeOffset('y');
+    function jfBadgeEdgesFor(elementId) {
+        var pos = jfBadgePos(elementId);
+        var x = jfReadBadgeOffset('x', elementId);
+        var y = jfReadBadgeOffset('y', elementId);
 
         var left = 'auto';
         var right = 'auto';
@@ -5097,11 +5112,19 @@
         else if (pos === 'br') { right = x + '%'; bottom = y + '%'; }
         else { left = x + '%'; top = y + '%'; }
 
+        return { left: left, right: right, top: top, bottom: bottom };
+    }
+
+    function jfBadgeCss() {
+        var v = jfBadgeEdgesFor('badge');
+        var w = jfBadgeEdgesFor('badge_wide');
+
         return '' +
-            '.jf-exist-badge{position:absolute;left:' + left + ';right:' + right + ';top:' + top + ';bottom:' + bottom + ';z-index:6;width:1.7em;height:1.7em;border-radius:50%;' +
+            '.jf-exist-badge{position:absolute;left:' + v.left + ';right:' + v.right + ';top:' + v.top + ';bottom:' + v.bottom + ';z-index:6;width:1.7em;height:1.7em;border-radius:50%;' +
             'display:flex;align-items:center;justify-content:center;background:rgba(20,20,24,.72);' +
             'box-shadow:0 2px 6px rgba(0,0,0,.4);pointer-events:none;backdrop-filter:blur(4px)}' +
-            '.jf-exist-badge svg{width:1.05em;height:1.05em;display:block}';
+            '.jf-exist-badge svg{width:1.05em;height:1.05em;display:block}' +
+            '.jf-exist-badge.jf-exist-badge--wide{left:' + w.left + ';right:' + w.right + ';top:' + w.top + ';bottom:' + w.bottom + '}';
     }
 
     function jfApplyBadgeCss() {
@@ -5123,6 +5146,7 @@
             '.jf-ui-pos-editor--active{border-color:rgba(90,200,250,.55);box-shadow:0 0 0 .18em rgba(90,200,250,.35),0 10px 24px rgba(0,0,0,.28)}' +
             '.jf-ui-pos-editor__layout{display:flex;align-items:center}' +
             '.jf-ui-pos-editor__preview{position:relative;flex:0 0 4.6em;width:4.6em;height:6.4em;border-radius:.65em;overflow:hidden;background:linear-gradient(145deg,#3a4254 0%,#222833 100%);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}' +
+            '.jf-ui-pos-editor__preview--wide{flex:0 0 7.2em;width:7.2em;height:4.05em}' +
             '.jf-ui-pos-editor__card{position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(0,0,0,.12))}' +
             '.jf-ui-pos-editor__dot{position:absolute;width:.62em;height:.62em;margin:-.31em 0 0 -.31em;border-radius:50%;background:#5ac8fa;box-shadow:0 0 0 .14em rgba(90,200,250,.35),0 2px 8px rgba(0,0,0,.35)}' +
 
@@ -5139,6 +5163,12 @@
             '.jf-ui-pos-editor__status{margin-top:.55em;font-size:.92em;font-weight:600}' +
             '.jf-ui-pos-editor__hint{margin-top:.2em;font-size:.82em;opacity:.68;line-height:1.35}';
         try { $('body').append('<style id="jf-badge-pos-editor-style">' + css + '</style>'); } catch (e1) {}
+    }
+
+    function jfIsWideCard($card) {
+        try {
+            return $card.hasClass('card--wide') || $card.hasClass('card--horizontal') || $card.hasClass('card--big') || $card.hasClass('card--promo');
+        } catch (e0) { return false; }
     }
 
     function jfDecorateCard(cardEl) {
@@ -5170,7 +5200,8 @@
             if (!$view.length) return;
             try { el.jellyfin_badge_jfid = String(jfId || ''); } catch (eJ0) { el.jellyfin_badge_jfid = ''; }
 
-            $view.append('<div class="jf-exist-badge" title="Есть на сервере Jellyfin">' + getIcon() + '</div>');
+            var wideCls = jfIsWideCard($card) ? ' jf-exist-badge--wide' : '';
+            $view.append('<div class="jf-exist-badge' + wideCls + '" title="Есть на сервере Jellyfin">' + getIcon() + '</div>');
         } catch (e0) {}
     }
 
@@ -5506,24 +5537,24 @@
                 values: { tl: 'Вверху слева', tr: 'Вверху справа', bl: 'Внизу слева', br: 'Внизу справа' },
                 'default': 'tr'
             },
-            field: { name: 'Угол значка', description: '' },
-            onChange: function () { jfApplyBadgeCss(); jfRefreshBadgePosEditorVisuals(); }
+            field: { name: 'Угол значка (вертикальные карточки)', description: '' },
+            onChange: function () { jfApplyBadgeCss(); jfRefreshBadgePosEditorVisuals('badge'); }
         });
 
         Lampa.SettingsApi.addParam({
             component: 'jellyfin_settings',
             param: { name: 'jellyfin_badge_pos_editor', type: 'static' },
-            field: { name: 'Позиция' },
+            field: { name: 'Позиция (вертикальные карточки)' },
             onRender: function (item) {
                 jfInjectBadgePosEditorCss();
-                jfRenderBadgePosEditor(item);
+                jfRenderBadgePosEditor(item, 'badge');
             }
         });
 
         Lampa.SettingsApi.addParam({
             component: 'jellyfin_settings',
             param: { type: 'button', name: 'jellyfin_badge_reset' },
-            field: { name: 'Сбросить позицию', description: '' },
+            field: { name: 'Сбросить позицию (вертикальные карточки)', description: '' },
             onChange: function () {
                 try {
                     Lampa.Storage.set('jellyfin_badge_pos', 'tr');
@@ -5531,7 +5562,45 @@
                     Lampa.Storage.set('jellyfin_badge_off_y', '4p');
                 } catch (e0) {}
                 jfApplyBadgeCss();
-                jfRefreshBadgePosEditorVisuals();
+                jfRefreshBadgePosEditorVisuals('badge');
+                try { if (Lampa.Settings && Lampa.Settings.update) Lampa.Settings.update(); } catch (e1) {}
+            }
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: 'jellyfin_settings',
+            param: {
+                name: 'jellyfin_badge_pos_wide',
+                type: 'select',
+                values: { tl: 'Вверху слева', tr: 'Вверху справа', bl: 'Внизу слева', br: 'Внизу справа' },
+                'default': 'tr'
+            },
+            field: { name: 'Угол значка (горизонтальные карточки)', description: '' },
+            onChange: function () { jfApplyBadgeCss(); jfRefreshBadgePosEditorVisuals('badge_wide'); }
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: 'jellyfin_settings',
+            param: { name: 'jellyfin_badge_pos_editor_wide', type: 'static' },
+            field: { name: 'Позиция (горизонтальные карточки)' },
+            onRender: function (item) {
+                jfInjectBadgePosEditorCss();
+                jfRenderBadgePosEditor(item, 'badge_wide');
+            }
+        });
+
+        Lampa.SettingsApi.addParam({
+            component: 'jellyfin_settings',
+            param: { type: 'button', name: 'jellyfin_badge_reset_wide' },
+            field: { name: 'Сбросить позицию (горизонтальные карточки)', description: '' },
+            onChange: function () {
+                try {
+                    Lampa.Storage.set('jellyfin_badge_pos_wide', 'tr');
+                    Lampa.Storage.set('jellyfin_badge_off_x_wide', '4p');
+                    Lampa.Storage.set('jellyfin_badge_off_y_wide', '4p');
+                } catch (e0) {}
+                jfApplyBadgeCss();
+                jfRefreshBadgePosEditorVisuals('badge_wide');
                 try { if (Lampa.Settings && Lampa.Settings.update) Lampa.Settings.update(); } catch (e1) {}
             }
         });
