@@ -403,7 +403,7 @@
             if (self._indexState.building) { if (onDone) onDone(false, 0, { alreadyBuilding: true }); return; }
             self._indexState.building = true;
 
-            var safetyTimer = setTimeout(function () { self._indexState.building = false; }, 90000);
+            var safetyTimer = setTimeout(function () { self._indexState.building = false; self._indexState.progress = null; }, 90000);
 
             self.authenticate(function () {
                 clearTimeout(safetyTimer);
@@ -412,6 +412,7 @@
                 var uid = String(self.userId || '');
                 if (!server || !token || !uid) {
                     self._indexState.building = false;
+                    self._indexState.progress = null;
                     if (onDone) onDone(false);
                     return;
                 }
@@ -429,10 +430,14 @@
                     tv: { found: 0, scanned: 0, total: 0 }
                 };
 
+                self._indexState.progress = { active: true, jobIdx: 0, jobsTotal: 0, scanned: 0, found: 0, libraryTotal: 0, label: 'подготовка...' };
+                try { jfUpdateIndexStatusUI(); } catch (eP0) {}
+
                 function finish() {
 
                     self.rememberTmdbMappingsBulk(collected, abortedJobs === 0);
                     self._indexState.building = false;
+                    self._indexState.progress = null;
                     var now = Date.now();
                     self._indexState.builtAt = now;
                     self._indexState.fullBuiltAt = now;
@@ -491,6 +496,17 @@
                                 }
                             }
 
+                            self._indexState.progress = {
+                                active: true,
+                                jobIdx: jobIdx + 1,
+                                jobsTotal: jobs.length,
+                                scanned: totalScanned,
+                                found: totalFound,
+                                libraryTotal: knownGrandTotal,
+                                label: job.viewName + ' - ' + (job.cardType === 'tv' ? 'сериалы' : 'фильмы')
+                            };
+                            try { jfUpdateIndexStatusUI(); } catch (eP1) {}
+
                             var next = startIndex + limit;
                             if (next < total && items.length) {
                                 fetchPage(jobIdx, next, 0, 0);
@@ -499,8 +515,20 @@
                             }
                         }, function () {
 
+                            self._indexState.progress = {
+                                active: true,
+                                jobIdx: jobIdx + 1,
+                                jobsTotal: jobs.length,
+                                scanned: totalScanned,
+                                found: totalFound,
+                                libraryTotal: knownGrandTotal,
+                                label: (job.viewName || 'Библиотека') + ' - ' + (job.cardType === 'tv' ? 'сериалы' : 'фильмы') + ' (повтор запроса, сервер отвечает медленно)'
+                            };
+                            try { jfUpdateIndexStatusUI(); } catch (eP2) {}
+
                             if (attempt < 2) {
-                                setTimeout(function () { fetchPage(jobIdx, startIndex, attempt + 1, consecFail); }, 900);
+                                var backoff = 900 * (attempt + 1);
+                                setTimeout(function () { fetchPage(jobIdx, startIndex, attempt + 1, consecFail); }, backoff);
                                 return;
                             }
 
@@ -510,9 +538,13 @@
                                 abortedJobs++;
                                 fetchPage(jobIdx + 1, 0, 0, 0);
                             } else {
-                                fetchPage(jobIdx, startIndex + limit, 0, nextConsecFail);
+                                // Раньше здесь была ошибка: неудачная страница пропускалась
+                                // (startIndex + limit), из-за чего до 300 позиций терялись
+                                // безвозвратно при временном сбое сети/сервера.
+                                // Теперь повторяем именно ту же страницу.
+                                setTimeout(function () { fetchPage(jobIdx, startIndex, 0, nextConsecFail); }, 1500);
                             }
-                        });
+                        }, { timeoutMs: 1000 * 30 });
                     }
 
                     fetchPage(0, 0, 0, 0);
@@ -527,22 +559,26 @@
                         var ct = '';
                         try { ct = String(v.CollectionType || v.collectionType || '').toLowerCase(); } catch (e0) { ct = ''; }
                         if (NON_VIDEO_TYPES[ct]) continue;
+                        var vName = String(v.Name || v.name || '') || 'Библиотека';
 
-                        jobs.push({ parentId: String(v.Id), type: 'Movie', cardType: 'movie' });
-                        jobs.push({ parentId: String(v.Id), type: 'Series', cardType: 'tv' });
+                        jobs.push({ parentId: String(v.Id), type: 'Movie', cardType: 'movie', viewName: vName });
+                        jobs.push({ parentId: String(v.Id), type: 'Series', cardType: 'tv', viewName: vName });
                     }
                     if (!jobs.length) {
 
-                        jobs.push({ parentId: '', type: 'Movie', cardType: 'movie' });
-                        jobs.push({ parentId: '', type: 'Series', cardType: 'tv' });
+                        jobs.push({ parentId: '', type: 'Movie', cardType: 'movie', viewName: 'Библиотека' });
+                        jobs.push({ parentId: '', type: 'Series', cardType: 'tv', viewName: 'Библиотека' });
                     }
+                    self._indexState.progress.jobsTotal = jobs.length;
                     runJobs(jobs);
                 }, function () {
 
-                    runJobs([
-                        { parentId: '', type: 'Movie', cardType: 'movie' },
-                        { parentId: '', type: 'Series', cardType: 'tv' }
-                    ]);
+                    var fallbackJobs = [
+                        { parentId: '', type: 'Movie', cardType: 'movie', viewName: 'Библиотека' },
+                        { parentId: '', type: 'Series', cardType: 'tv', viewName: 'Библиотека' }
+                    ];
+                    self._indexState.progress.jobsTotal = fallbackJobs.length;
+                    runJobs(fallbackJobs);
                 });
             });
         },
@@ -574,6 +610,8 @@
                 var collected = [];
                 var totalFound = 0;
                 var totalScanned = 0;
+                var newFound = 0;
+                var newByType = { movie: 0, tv: 0 };
 
                 function finish(ok) {
                     if (ok && collected.length) self.rememberTmdbMappingsBulk(collected);
@@ -581,11 +619,43 @@
                     var now = Date.now();
                     self._indexState.deltaAt = now;
                     try { sset('jellyfin_index_delta_at', now); } catch (e0) {}
+
+                    if (ok && newFound) {
+                        try {
+                            var last = sget('jellyfin_index_last_counts', null);
+                            if (last && typeof last === 'object') {
+                                if (!last.movie) last.movie = { found: 0, scanned: 0, total: 0 };
+                                if (!last.tv) last.tv = { found: 0, scanned: 0, total: 0 };
+                                // Дельта-проверка находит только новые/изменённые позиции, а не всю
+                                // библиотеку, поэтому реальный "total" неизвестен - считаем, что
+                                // каждое новое совпадение соответствует новому элементу в библиотеке,
+                                // и прибавляем найденное как к found, так и к total.
+                                last.movie.found += newByType.movie;
+                                last.movie.total += newByType.movie;
+                                last.tv.found += newByType.tv;
+                                last.tv.total += newByType.tv;
+                                last.matched = (last.matched || 0) + newFound;
+                                last.libraryTotal = (last.libraryTotal || 0) + newFound;
+                                sset('jellyfin_index_last_counts', last);
+                            }
+                        } catch (eUpd) {}
+                    }
+
                     if (ok && totalFound) {
                         try { jfRescanVisibleCards(); } catch (e1) {}
                     }
                     try { jfUpdateIndexStatusUI(); } catch (e2) {}
-                    if (onDone) onDone(!!ok, totalFound, { scanned: totalScanned });
+
+                    if (ok && newFound) {
+                        try {
+                            var parts = [];
+                            if (newByType.movie) parts.push('фильмов ' + newByType.movie);
+                            if (newByType.tv) parts.push('сериалов ' + newByType.tv);
+                            if (parts.length) Lampa.Noty.show('Jellyfin: найдено новое - ' + parts.join(', '));
+                        } catch (eNoty) {}
+                    }
+
+                    if (onDone) onDone(!!ok, totalFound, { scanned: totalScanned, newFound: newFound, newByType: newByType });
                 }
 
                 function fetchPage(views, viewIdx, startIndex, attempt) {
@@ -617,7 +687,16 @@
                             var cardType = String(it.Type || '').toLowerCase() === 'series' ? 'tv' : 'movie';
                             var providers = it.ProviderIds || it.Providerids || {};
                             var tmdb = providers && (providers.Tmdb || providers.tmdb || providers.TMDb || '');
-                            if (tmdb && it.Id) { collected.push([cardType, String(tmdb), String(it.Id)]); totalFound++; }
+                            if (tmdb && it.Id) {
+                                var alreadyKnown = '';
+                                try { alreadyKnown = self.findJellyfinIdByTmdb(cardType, tmdb); } catch (eKn) { alreadyKnown = ''; }
+                                collected.push([cardType, String(tmdb), String(it.Id)]);
+                                totalFound++;
+                                if (!alreadyKnown) {
+                                    newFound++;
+                                    if (newByType[cardType] !== undefined) newByType[cardType]++;
+                                }
+                            }
                         }
 
                         var next = startIndex + limit;
@@ -625,12 +704,13 @@
                         else fetchPage(views, viewIdx + 1, 0, 0);
                     }, function () {
                         if (attempt < 2) {
-                            setTimeout(function () { fetchPage(views, viewIdx, startIndex, attempt + 1); }, 900);
+                            var backoff = 900 * (attempt + 1);
+                            setTimeout(function () { fetchPage(views, viewIdx, startIndex, attempt + 1); }, backoff);
                             return;
                         }
 
                         fetchPage(views, viewIdx + 1, 0, 0);
-                    });
+                    }, { timeoutMs: 1000 * 30 });
                 }
 
                 self.getViews(function (viewsRaw) {
@@ -4778,6 +4858,16 @@
 
     function jfIndexStatusDescription() {
         try {
+            if (Jellyfin._indexState && Jellyfin._indexState.building && Jellyfin._indexState.progress) {
+                var p = Jellyfin._indexState.progress;
+                var line = 'Идёт сканирование библиотеки...';
+                if (p.jobsTotal) line += ' Раздел ' + p.jobIdx + ' из ' + p.jobsTotal + (p.label ? ' (' + p.label + ')' : '');
+                line += '. Просканировано: ' + (p.scanned || 0);
+                if (p.libraryTotal) line += ' из ~' + p.libraryTotal;
+                line += ', сопоставлено: ' + (p.found || 0);
+                return line;
+            }
+
             var last = Lampa.Storage.get('jellyfin_index_last_counts', null);
             if (!last || typeof last !== 'object' || !last.at) {
                 return 'Ещё не сканировалось. Проверка запускается автоматически в фоне.';
