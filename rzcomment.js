@@ -451,7 +451,7 @@
         '</div>' +
       '</div>';
 
-    return wrapper;
+    return fixCommentImages(wrapper);
   }
 
   function buildTree(root) {
@@ -522,6 +522,20 @@
     return (c.textContent || '').replace(/\s+/g, ' ').trim();
   }
 
+  function fixCommentImages(root) {
+    var imgs = root.querySelectorAll('img');
+    for (var i = 0; i < imgs.length; i++) {
+      var img = imgs[i];
+      var s = img.getAttribute('src');
+      if (s && !/^(data:|https?:)/i.test(s)) img.setAttribute('src', absUrl(s));
+      img.onerror = function () {
+        this.onerror = null;
+        if (this.parentNode) this.parentNode.removeChild(this);
+      };
+    }
+    return root;
+  }
+
   function absUrl(src) {
     if (!src) return '';
     if (src.indexOf('//') === 0) return 'https:' + src;
@@ -541,7 +555,7 @@
         out.push({
           avatar: absUrl(avaImg && (avaImg.getAttribute('data-src') || avaImg.getAttribute('src'))),
           user: (nameEl && nameEl.textContent.replace(/\s+/g, ' ').trim()) || 'Без имени',
-          date: ((dateEl && dateEl.textContent) || '').replace(/\s+/g, ' ').replace(/^\s*оставлен\s*/i, '').trim(),
+          date: ((dateEl && dateEl.textContent) || '').replace(/\s+/g, ' ').replace(/^\s*оставлен\s*/i, '').replace(/\s*,?\s*(\d{1,2}:\d{2})\s*$/, ' · $1').trim(),
           reply: (depth || 0) > 0,
           plain: plain,
           html: (textEl && textEl.innerHTML) || ''
@@ -566,7 +580,7 @@
       '</div>';
     wrapper.querySelector('.name').textContent = c.user;
     wrapper.querySelector('.date').textContent = c.date;
-    return wrapper;
+    return fixCommentImages(wrapper);
   }
 
   function showRezkaComment(c) {
@@ -717,9 +731,10 @@
     var s = document.createElement('style');
     s.id = 'rezka-cub-style';
     s.textContent =
-      '.full-review.rz-review .full-review__text{line-height:1.4;margin-bottom:.9em}' +
-      '.full-review.rz-review .full-review__footer{display:flex;align-items:center;justify-content:flex-start;' +
-        'margin-top:.2em;padding-top:.8em;border-top:1px solid rgba(255,255,255,.1)}' +
+      '.full-review.rz-review{display:flex;flex-direction:column}' +
+      '.full-review.rz-review .full-review__text{flex:1 1 auto;line-height:1.4;margin-bottom:.9em}' +
+      '.full-review.rz-review .full-review__footer{flex:none;display:flex;align-items:center;justify-content:flex-start;' +
+        'margin-top:auto;padding-top:.8em;border-top:1px solid rgba(255,255,255,.1)}' +
       '.rz-ava{position:relative;flex:none;width:2.6em;height:2.6em;border-radius:50%;overflow:hidden;' +
         'display:flex;align-items:center;justify-content:center;font-size:1em;font-weight:600;color:#fff;' +
         'box-shadow:0 0 0 .12em rgba(255,255,255,.14)}' +
@@ -768,34 +783,23 @@
     name.textContent = c.user;
     meta.appendChild(name);
 
-    var dm = (c.date || '').match(/^(.*?)\s+(\d{1,2}:\d{2})$/);
-    var dateText = dm ? dm[1] : (c.date || '');
-    var timeText = dm ? dm[2] : '';
-    if (dateText) {
+    if (c.date) {
       var date = document.createElement('div');
       date.className = 'rz-date';
-      date.textContent = dateText;
+      date.textContent = c.date;
       meta.appendChild(date);
     }
 
     f.appendChild(ava);
     f.appendChild(meta);
 
-    if (timeText || c.reply) {
+    if (c.reply) {
       var tags = document.createElement('div');
       tags.className = 'rz-tags';
-      if (c.reply) {
-        var re = document.createElement('div');
-        re.className = 'rz-tag';
-        re.textContent = 'ответ';
-        tags.appendChild(re);
-      }
-      if (timeText) {
-        var tm = document.createElement('div');
-        tm.className = 'rz-tag';
-        tm.textContent = timeText;
-        tags.appendChild(tm);
-      }
+      var re = document.createElement('div');
+      re.className = 'rz-tag';
+      re.textContent = 'ответ';
+      tags.appendChild(re);
       f.appendChild(tags);
     }
   }
