@@ -529,7 +529,7 @@
     return src;
   }
 
-  function flattenComments(root, out) {
+  function flattenComments(root, out, depth) {
     for (var i = 0; i < root.children.length && out.length < 100; i++) {
       var li = root.children[i];
       var avaImg = li.querySelector('.ava img');
@@ -541,13 +541,14 @@
         out.push({
           avatar: absUrl(avaImg && (avaImg.getAttribute('data-src') || avaImg.getAttribute('src'))),
           user: (nameEl && nameEl.textContent.replace(/\s+/g, ' ').trim()) || 'Без имени',
-          date: (dateEl && dateEl.textContent.replace(/\s+/g, ' ').trim()) || '',
+          date: ((dateEl && dateEl.textContent) || '').replace(/\s+/g, ' ').replace(/^\s*оставлен\s*/i, '').trim(),
+          reply: (depth || 0) > 0,
           plain: plain,
           html: (textEl && textEl.innerHTML) || ''
         });
       }
       var children = li.querySelector('ol.comments-tree-list');
-      if (children) flattenComments(children, out);
+      if (children) flattenComments(children, out, (depth || 0) + 1);
     }
     return out;
   }
@@ -711,40 +712,92 @@
     return !!(Lampa.Maker && Lampa.Maker.make && window.Lampa && Lampa.Listener);
   }
 
+  function ensureCubStyles() {
+    if (document.getElementById('rezka-cub-style')) return;
+    var s = document.createElement('style');
+    s.id = 'rezka-cub-style';
+    s.textContent =
+      '.full-review.rz-review .full-review__text{line-height:1.4;margin-bottom:.9em}' +
+      '.full-review.rz-review .full-review__footer{display:flex;align-items:center;justify-content:flex-start;' +
+        'margin-top:.2em;padding-top:.8em;border-top:1px solid rgba(255,255,255,.1)}' +
+      '.rz-ava{position:relative;flex:none;width:2.6em;height:2.6em;border-radius:50%;overflow:hidden;' +
+        'display:flex;align-items:center;justify-content:center;font-size:1em;font-weight:600;color:#fff;' +
+        'box-shadow:0 0 0 .12em rgba(255,255,255,.14)}' +
+      '.rz-ava img{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover}' +
+      '.rz-meta{flex:1;min-width:0;margin-left:.8em;display:flex;flex-direction:column}' +
+      '.rz-name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.rz-date{margin-top:.15em;font-size:.78em;opacity:.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.rz-tags{flex:none;margin-left:.8em;display:flex;align-items:center}' +
+      '.rz-tag{padding:.25em .7em;border-radius:1em;background:rgba(255,255,255,.1);font-size:.8em;white-space:nowrap}' +
+      '.rz-tag+.rz-tag{margin-left:.4em}';
+    document.head.appendChild(s);
+  }
+
+  function cubInitials(ava, name) {
+    var h = 0, i;
+    for (i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+    ava.style.background = 'hsl(' + h + ',45%,38%)';
+    ava.textContent = (name.replace(/[^A-Za-zА-Яа-яЁё0-9]/g, '').charAt(0) || '?').toUpperCase();
+  }
+
   function cubFooter(inst, c) {
-    var f = inst.html && inst.html.querySelector && inst.html.querySelector('.full-review__footer');
+    var root = inst.html;
+    var f = root && root.querySelector && root.querySelector('.full-review__footer');
     if (!f) return;
+    root.classList.add('rz-review');
     f.innerHTML = '';
 
-    var user = document.createElement('div');
-    user.className = 'full-review__user';
-    var icon = document.createElement('div');
-    icon.className = 'full-review__user-icon';
-    var img = document.createElement('img');
-    img.className = 'full-review__user-img';
-    function loaded() { if (user.className.indexOf('loaded') === -1) user.className += ' loaded'; }
-    img.onload = loaded;
-    img.onerror = function () {
-      img.onerror = null;
-      img.src = './img/actor.svg';
-    };
-    img.src = c.avatar || './img/actor.svg';
-    icon.appendChild(img);
+    var ava = document.createElement('div');
+    ava.className = 'rz-ava';
+    if (c.avatar && !/noava|no-ava|default|placeholder/i.test(c.avatar)) {
+      var img = document.createElement('img');
+      img.onerror = function () {
+        if (img.parentNode) img.parentNode.removeChild(img);
+        cubInitials(ava, c.user);
+      };
+      img.src = c.avatar;
+      ava.appendChild(img);
+    } else {
+      cubInitials(ava, c.user);
+    }
+
+    var meta = document.createElement('div');
+    meta.className = 'rz-meta';
     var name = document.createElement('div');
-    name.className = 'full-review__user-email';
+    name.className = 'rz-name';
     name.textContent = c.user;
-    user.appendChild(icon);
-    user.appendChild(name);
+    meta.appendChild(name);
 
-    var like = document.createElement('div');
-    like.className = 'full-review__like';
-    var counter = document.createElement('div');
-    counter.className = 'full-review__like-counter';
-    counter.textContent = (c.date || '').split(',')[0];
-    like.appendChild(counter);
+    var dm = (c.date || '').match(/^(.*?)\s+(\d{1,2}:\d{2})$/);
+    var dateText = dm ? dm[1] : (c.date || '');
+    var timeText = dm ? dm[2] : '';
+    if (dateText) {
+      var date = document.createElement('div');
+      date.className = 'rz-date';
+      date.textContent = dateText;
+      meta.appendChild(date);
+    }
 
-    f.appendChild(user);
-    f.appendChild(like);
+    f.appendChild(ava);
+    f.appendChild(meta);
+
+    if (timeText || c.reply) {
+      var tags = document.createElement('div');
+      tags.className = 'rz-tags';
+      if (c.reply) {
+        var re = document.createElement('div');
+        re.className = 'rz-tag';
+        re.textContent = 'ответ';
+        tags.appendChild(re);
+      }
+      if (timeText) {
+        var tm = document.createElement('div');
+        tm.className = 'rz-tag';
+        tm.textContent = timeText;
+        tags.appendChild(tm);
+      }
+      f.appendChild(tags);
+    }
   }
 
   function cubMakeElement(c, i) {
@@ -771,6 +824,7 @@
   function cubApply(ctx) {
     if (ctx.applied || !ctx.line || !ctx.comments) return;
     ctx.applied = true;
+    ensureCubStyles();
     var line = ctx.line;
     try {
       var root = line.render(true);
