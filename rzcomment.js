@@ -1,4 +1,164 @@
 (function () {
+  var K = new Int32Array([
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+  ]);
+  var INIT = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+
+  function compress(st, W, out) {
+    var i, x, y, t1, t2;
+    var a = st[0], b = st[1], c = st[2], d = st[3], e = st[4], f = st[5], g = st[6], h = st[7];
+    for (i = 16; i < 64; i++) {
+      x = W[i - 15]; y = W[i - 2];
+      W[i] = (W[i - 16] + (((x >>> 7) | (x << 25)) ^ ((x >>> 18) | (x << 14)) ^ (x >>> 3)) +
+              W[i - 7] + (((y >>> 17) | (y << 15)) ^ ((y >>> 19) | (y << 13)) ^ (y >>> 10))) | 0;
+    }
+    for (i = 0; i < 64; i++) {
+      t1 = (h + (((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7))) +
+            ((e & f) ^ (~e & g)) + K[i] + W[i]) | 0;
+      t2 = ((((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10))) +
+            ((a & b) ^ (a & c) ^ (b & c))) | 0;
+      h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+    }
+    out[0] = (st[0] + a) | 0; out[1] = (st[1] + b) | 0; out[2] = (st[2] + c) | 0; out[3] = (st[3] + d) | 0;
+    out[4] = (st[4] + e) | 0; out[5] = (st[5] + f) | 0; out[6] = (st[6] + g) | 0; out[7] = (st[7] + h) | 0;
+  }
+
+  function fillW(W, buf, off) {
+    for (var i = 0; i < 16; i++) {
+      var o = off + i * 4;
+      W[i] = (buf[o] << 24) | (buf[o + 1] << 16) | (buf[o + 2] << 8) | buf[o + 3];
+    }
+  }
+
+  function Hasher(data) {
+    var bytes = [], i;
+    for (i = 0; i < data.length; i++) bytes.push(data.charCodeAt(i) & 255);
+    var nb = Math.floor(bytes.length / 64);
+    var mid = new Int32Array(INIT), tmp = new Int32Array(8), W = new Int32Array(64);
+    var buf = new Uint8Array(192);
+    for (i = 0; i < nb * 64; i++) buf[i % 64] = bytes[i], (i % 64 === 63) && (fillW(W, buf, 0), compress(mid, W, tmp), mid.set(tmp));
+    var rest = bytes.slice(nb * 64), r = rest.length;
+    for (i = 0; i < 192; i++) buf[i] = 0;
+    for (i = 0; i < r; i++) buf[i] = rest[i];
+    var total = bytes.length;
+    var out2 = new Int32Array(8);
+
+    this.hash = function (nonce) {
+      var s = String(nonce), nd = s.length, k;
+      for (k = 0; k < nd; k++) buf[r + k] = s.charCodeAt(k);
+      var p = r + nd;
+      buf[p] = 0x80;
+      var end = (p + 9 <= 64) ? 64 : 128;
+      for (k = p + 1; k < end - 4; k++) buf[k] = 0;
+      var bits = (total + nd) * 8;
+      buf[end - 4] = (bits >>> 24) & 255; buf[end - 3] = (bits >>> 16) & 255;
+      buf[end - 2] = (bits >>> 8) & 255; buf[end - 1] = bits & 255;
+      fillW(W, buf, 0);
+      compress(mid, W, tmp);
+      if (end === 64) return tmp;
+      fillW(W, buf, 64);
+      compress(tmp, W, out2);
+      return out2;
+    };
+  }
+
+  function okHash(o, diff) {
+    var w = 0;
+    while (diff >= 8) { if (o[w] !== 0) return false; w++; diff -= 8; }
+    if (diff > 0 && (o[w] >>> (32 - diff * 4)) !== 0) return false;
+    return true;
+  }
+
+  function toHex(o) {
+    var s = '';
+    for (var i = 0; i < 8; i++) {
+      var h = (o[i] >>> 0).toString(16);
+      s += '00000000'.slice(h.length) + h;
+    }
+    return s;
+  }
+
+  function solve(data, diff, onProgress, cb) {
+    var hasher = new Hasher(data), nonce = 0, start = Date.now(), lastTick = start;
+    function step() {
+      var t = Date.now(), i, o;
+      while (Date.now() - t < 30) {
+        for (i = 0; i < 300; i++) {
+          o = hasher.hash(nonce);
+          if (okHash(o, diff)) { cb(nonce, toHex(o), Date.now() - start); return; }
+          nonce++;
+        }
+      }
+      if (onProgress && Date.now() - lastTick > 1000) { lastTick = Date.now(); onProgress(nonce); }
+      setTimeout(step, 0);
+    }
+    step();
+  }
+
+  function getJson(url, cb) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+    xhr.timeout = 30000;
+    xhr.onload = function () {
+      try { cb(null, JSON.parse(xhr.responseText)); } catch (e) { cb('bad response ' + xhr.status); }
+    };
+    xhr.onerror = function () { cb('network error'); };
+    xhr.ontimeout = function () { cb('timeout'); };
+    xhr.send();
+  }
+
+  function q(obj) {
+    var a = [];
+    for (var k in obj) if (obj.hasOwnProperty(k) && obj[k] !== undefined && obj[k] !== null) {
+      a.push(k + '=' + encodeURIComponent(obj[k]));
+    }
+    return a.join('&');
+  }
+
+  function get(workerUrl, siteUrl, cachedCookie, cb, onProgress) {
+    workerUrl = workerUrl.replace(/\/+$/, '');
+    getJson(workerUrl + '/anubis/challenge?' + q({ url: siteUrl, cookie: cachedCookie || '' }), function (err, info) {
+      if (err) return cb(err);
+      if (info.status === 'passed') return cb(null, info.cookie || cachedCookie || '');
+      if (info.status !== 'challenge') return cb('unexpected: ' + info.status + ' ' + (info.httpStatus || info.error || ''));
+
+      var ch = info.challenge || {};
+      var rules = ch.rules || {};
+      var chal = ch.challenge;
+      var data = typeof chal === 'string' ? chal : (chal && (chal.randomData || chal.data));
+      var id = chal && typeof chal === 'object' ? chal.id : undefined;
+      var algo = rules.algorithm || (chal && chal.method) || 'fast';
+      var diff = rules.difficulty || (chal && chal.difficulty) || 4;
+
+      if (!data) return cb('no challenge data');
+      if (algo !== 'fast' && algo !== 'slow' && algo !== 'proofofwork') {
+        return cb('unsupported algorithm: ' + algo);
+      }
+
+      solve(data, diff, onProgress, function (nonce, hash, elapsed) {
+        getJson(workerUrl + '/anubis/pass?' + q({
+          url: siteUrl, finalUrl: info.finalUrl, base: info.basePrefix, cookie: info.cookie,
+          id: id, response: hash, nonce: nonce, elapsedTime: elapsed
+        }), function (err2, res) {
+          if (err2) return cb(err2);
+          if (res.status === 'success') return cb(null, res.cookie);
+          cb('pass failed: ' + (res.httpStatus || '') + ' ' + (res.body || res.error || ''));
+        });
+      });
+    });
+  }
+
+  window.RezkaAnubis = { get: get, _solve: solve, _Hasher: Hasher, _hex: toHex };
+})();
+
+(function () {
   ("use strict");
 
   var year;
@@ -54,179 +214,68 @@
     });
   }
 
-  // --- Дублированная логика QR/TV авторизации для быстрого вызова с карточки фильма ---
-  // (настройки в SettingsApi ниже не трогаем, это отдельная копия)
+  var anubisSolving = false;
+  var anubisLastOk = 0;
 
-  function generateAuthCodeQuick() {
-    return Math.floor(1000 + Math.random() * 9000).toString();
-  }
-
-  function buildAuthUrlQuick() {
-    var proxyUrl = (Lampa.Storage.get('rezka_comment_proxy', 'https://rezka.lampasochka.workers.dev/') || 'https://rezka.lampasochka.workers.dev/').trim();
-    if (!startsWithHttp(proxyUrl)) {
+  function solveAnubis(onOk, onFail, opts) {
+    opts = opts || {};
+    if (anubisSolving) return;
+    var s = getSettings();
+    if (!startsWithHttp(s.proxy)) {
       Lampa.Noty.show('Сначала настройте URL прокси-воркера в настройках плагина');
-      return null;
+      if (onFail) onFail('no proxy');
+      return;
     }
-    if (!endsWithSlash(proxyUrl)) proxyUrl += '/';
-
-    var host = (Lampa.Storage.get('rezka_comment_host', 'https://rezka.ag') || 'https://rezka.ag').trim();
-    var hostBare = host.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
-
-    var code = generateAuthCodeQuick();
-    var authUrl = proxyUrl + 'auth/' + code + '/' + encodeURIComponent(hostBare);
-
-    return { proxyUrl: proxyUrl, code: code, authUrl: authUrl };
-  }
-
-  function pollAuthCodeQuick(proxyUrl, code, statusSelector, waitingText, onSuccess, onTimeout) {
-    var attempts = 0;
-    window.rezkaQuickAuthInterval = setInterval(function () {
-      attempts++;
-      if (attempts > 90) {
-        clearInterval(window.rezkaQuickAuthInterval);
-        $(statusSelector).text('Время ожидания истекло. Попробуйте снова.').css('color', '#ff5722');
-        if (onTimeout) onTimeout();
+    anubisSolving = true;
+    if (!opts.quiet) Lampa.Noty.show('Rezka: проходим проверку...');
+    RezkaAnubis.get(s.proxy, s.host + '/', s.cookie, function (err, cookie) {
+      anubisSolving = false;
+      if (err) {
+        console.error('[RezkaComment] anubis error:', err);
+        if (!opts.silentFail) Lampa.Noty.show('Rezka: не удалось пройти проверку (' + err + ')');
+        if (onFail) onFail(err);
         return;
       }
-
-      $(statusSelector).text(waitingText + repeatChar('.', attempts % 4));
-
-      $.ajax({
-        url: proxyUrl + 'check?code=' + code,
-        type: 'GET',
-        dataType: 'json',
-        success: function (d) {
-          if (d && (d.status === 'success' || d.cookie)) {
-            clearInterval(window.rezkaQuickAuthInterval);
-            Lampa.Storage.set('rezka_comment_cookie', d.cookie);
-            console.log('[RezkaComment] (quick) cookie saved:', d.cookie);
-
-            var tail = (d.cookie || '').slice(-16);
-            $(statusSelector).html('<span style="color: #4CAF50;">Успешно! Cookie сохранены (…' + tail + ').</span>');
-
-            if (onSuccess) setTimeout(onSuccess, 1500);
-          }
-        },
-        error: function () {}
-      });
-    }, 2000);
+      Lampa.Storage.set('rezka_comment_cookie', cookie);
+      if (!opts.quiet) Lampa.Noty.show('Rezka: проверка пройдена');
+      if (onOk) onOk(cookie);
+    });
   }
 
-  function closeAuthModalQuick(modalClass) {
-    clearInterval(window.rezkaQuickAuthInterval);
-    Lampa.Modal.close();
-    $(modalClass).remove();
-    try {
-      Lampa.Controller.toggle('content');
-    } catch (e) {}
-  }
-
-  function openQrAuthModalQuick(onDone) {
-    var auth = buildAuthUrlQuick();
-    if (!auth) return;
-
-    var modalHtml = $(
-      '<div style="text-align: center; padding: 20px;">' +
-        '<div style="margin-bottom: 20px; font-size: 1.2em; color: #fff;">' +
-          'Отсканируйте код камерой телефона<br>' +
-          '<span style="font-size: 0.8em; opacity: 0.7;">или перейдите по ссылке:</span><br>' +
-          '<a href="' + auth.authUrl + '" target="_blank" style="font-size: 0.8em; color: #a335ff; word-break: break-all;">' + auth.authUrl + '</a>' +
-        '</div>' +
-        '<div id="rezka_qr_container_quick" style="background: white; padding: 15px; display: inline-block; border-radius: 10px;"></div>' +
-        '<div id="rezka_qr_status_quick" style="margin-top: 20px; font-size: 1.1em; color: #e5e5e5;">Ожидание сканирования...</div>' +
-      '</div>'
-    );
-
-    function finish() {
-      closeAuthModalQuick('.modal--medium');
-      if (onDone) onDone();
+  function showCookieExpiredChoice(retryFn, sink) {
+    function back() {
+      if (sink) { if (sink.onError) sink.onError('blocked'); return; }
+      try { Lampa.Controller.toggle('content'); } catch (e) {}
     }
-
-    Lampa.Modal.open({
-      title: 'Авторизация HDRezka',
-      html: modalHtml,
-      size: 'medium',
-      mask: true,
-      onBack: function () { closeAuthModalQuick('.modal--medium'); }
-    });
-
-    var qrImgUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' + encodeURIComponent(auth.authUrl);
-    $('#rezka_qr_container_quick').html(
-      '<img src="' + qrImgUrl + '" width="250" height="250" alt="QR" onerror="this.parentElement.innerHTML=' +
-      "'<div style=\\'color:#333;font-size:0.9em;padding:20px;\\'>Не удалось загрузить QR. Используйте ссылку выше.</div>'" +
-      '">'
-    );
-
-    pollAuthCodeQuick(auth.proxyUrl, auth.code, '#rezka_qr_status_quick', 'Ожидание решения защиты на телефоне', finish, null);
-  }
-
-  function openTvAuthModalQuick(onDone) {
-    var auth = buildAuthUrlQuick();
-    if (!auth) return;
-
-    var modalHtml = $(
-      '<div style="padding: 10px;">' +
-        '<iframe src="' + auth.authUrl + '" style="width:100%;height:60vh;border:none;background:#fff;border-radius:6px;"></iframe>' +
-        '<div id="rezka_tv_status_quick" style="margin-top: 15px; font-size: 1.1em; color: #e5e5e5; text-align:center;">Ожидание прохождения проверки...</div>' +
-      '</div>'
-    );
-
-    function finish() {
-      closeAuthModalQuick('.modal--large');
-      if (onDone) onDone();
+    if (Date.now() - anubisLastOk < 30000) {
+      Lampa.Noty.show('Rezka всё ещё блокирует запрос, попробуйте позже');
+      back();
+      return;
     }
-
-    Lampa.Modal.open({
-      title: 'Проверка HDRezka',
-      html: modalHtml,
-      size: 'large',
-      mask: true,
-      onBack: function () { closeAuthModalQuick('.modal--large'); }
-    });
-
-    pollAuthCodeQuick(auth.proxyUrl, auth.code, '#rezka_tv_status_quick', 'Ожидание решения защиты', finish, null);
+    solveAnubis(function () {
+      anubisLastOk = Date.now();
+      if (retryFn) retryFn();
+    }, back, { quiet: true, silentFail: !!sink });
   }
 
-  // Показывает выбор способа авторизации, когда куки протухли/отсутствуют.
-  // retryFn (опционально) — вызывается после успешной авторизации, чтобы
-  // сразу повторить действие (поиск/загрузку комментариев) без лишних нажатий.
-  function showCookieExpiredChoice(retryFn) {
-    Lampa.Select.show({
-      title: 'Cookie Rezka устарели или отсутствуют',
-      items: [
-        { title: 'Пройти проверку в Lampa', method: 'tv' },
-        { title: 'Через QR-код на телефоне', method: 'qr' }
-      ],
-      onBack: function () {
-        Lampa.Controller.toggle('content');
-      },
-      onSelect: function (item) {
-        if (item.method === 'tv') {
-          openTvAuthModalQuick(retryFn);
-        } else {
-          openQrAuthModalQuick(retryFn);
-        }
-      }
-    });
-  }
-  // --- конец дублированной логики ---
-
-  // Явные текстовые маркеры блокировки ботозащитой (Anubis и т.п.).
-  // Безопасно применять к любому ответу, т.к. не даёт ложных срабатываний.
   function hasExplicitBotMarkers(text) {
     return text.indexOf("Проверяем, что вы не бот") !== -1 || text.indexOf("Anubis") !== -1;
   }
 
-  // Расширенная эвристика для HTML-ответов (поиск, либо ответ, который не
-  // удалось распарсить как JSON): если явных маркеров нет, но куки не
-  // передавались вообще и в ответе нет ожидаемой разметки страницы (b-content),
-  // тоже считаем это блокировкой, а не легитимным "не найдено"/пустым ответом.
-  // Для уже успешно распарсенного JSON эту версию не используем — она даст
-  // ложные срабатывания, т.к. в JSON-ответе никогда не будет "b-content".
   function looksLikeBotBlockHtml(text, hasCookie) {
     if (hasExplicitBotMarkers(text)) return true;
     if (!hasCookie && text.indexOf("b-content") === -1) return true;
     return false;
+  }
+
+  function bgFail(sink, msg) {
+    if (sink) {
+      console.warn('[RezkaComment]', msg);
+      if (sink.onError) sink.onError(msg);
+      return;
+    }
+    Lampa.Noty.show(msg);
+    Lampa.Loading.stop();
   }
 
   function getSettings() {
@@ -239,7 +288,7 @@
     return { host: host, cookie: cookie, proxy: proxy };
   }
 
-  function searchRezka(name, ye) {
+  function searchRezka(name, ye, sink) {
     var settings = getSettings();
     var host = settings.host;
     var cookie = settings.cookie;
@@ -267,14 +316,14 @@
       var item = dom.querySelector(".b-content__inline_item");
       if (!item) {
         console.warn('[RezkaComment] show not found on Rezka:', name, ye);
-        Lampa.Loading.stop();
+        if (!sink) Lampa.Loading.stop();
         if (looksLikeBotBlockHtml(fc, !!cookie)) {
           showCookieExpiredChoice(function () {
-            Lampa.Loading.start();
-            searchRezka(name, ye);
-          });
+            if (!sink) Lampa.Loading.start();
+            searchRezka(name, ye, sink);
+          }, sink);
         } else {
-          Lampa.Noty.show('Фильм/сериал не найден на Rezka');
+          bgFail(sink, 'Фильм/сериал не найден на Rezka');
         }
         return;
       }
@@ -283,15 +332,14 @@
       namemovie = linkEl ? linkEl.innerText : "";
 
       var itemUrl = linkEl ? linkEl.getAttribute("href") : "";
-      return comment_rezka(item.dataset.id, itemUrl);
+      return comment_rezka(item.dataset.id, itemUrl, sink);
     }).catch(function (e) {
       console.error('[RezkaComment] searchRezka error:', e);
-      Lampa.Noty.show('Ошибка поиска на Rezka: ' + e.message);
-      Lampa.Loading.stop();
+      bgFail(sink, 'Ошибка поиска на Rezka: ' + e.message);
     });
   }
 
-  function getEnTitle(id, type) {
+  function getEnTitle(id, type, sink, yr) {
     var tmdbType = type === 'movie' ? 'movie' : 'tv';
     var tmdbCacheKey = tmdbType + '_' + id;
 
@@ -343,17 +391,15 @@
       if (!enTitle) enTitle = fallbackTitle;
 
       if (enTitle) {
-        return searchRezka(normalizeTitle(enTitle), year);
+        return searchRezka(normalizeTitle(enTitle), yr !== undefined ? yr : year, sink);
       } else {
         console.warn('[RezkaComment] English title not found for', tmdbCacheKey, tr, 'fallbackTitle:', fallbackTitle);
-        Lampa.Noty.show('Английское название не найдено');
-        Lampa.Loading.stop();
+        bgFail(sink, 'Английское название не найдено');
       }
     }).catch(function (e) {
       console.error('[RezkaComment] TMDB error', e);
       var reason = (e && (e.message || e.status_message)) ? (e.message || e.status_message) : JSON.stringify(e);
-      Lampa.Noty.show('Ошибка получения данных TMDB: ' + reason);
-      Lampa.Loading.stop();
+      bgFail(sink, 'Ошибка получения данных TMDB: ' + reason);
     });
   }
 
@@ -429,32 +475,7 @@
     return fragment;
   }
 
-  function comment_rezka(id, pageUrl) {
-    var settings = getSettings();
-    var host = settings.host;
-    var cookie = settings.cookie;
-    var proxy = settings.proxy;
-    var t = Date.now();
-    var path = host + "/ajax/get_comments/?t=" + t + "&news_id=" + (id ? id : "1") + "&cstart=1&type=0&comment_id=0&skin=hdrezka";
-
-    var commentsUrl = proxy;
-    if (cookie) {
-      commentsUrl += "param/Cookie=" + encodeURIComponent(cookie) + "/";
-    }
-    if (pageUrl) {
-      commentsUrl += "param/Referer=" + encodeURIComponent(pageUrl) + "/";
-    }
-    commentsUrl += path;
-
-    console.log('[RezkaComment] fetching comments from:', commentsUrl);
-
-    function openModal(treeContent) {
-      Lampa.Loading.stop();
-      var modal = $(
-        '<div><div class="broadcast__text" style="text-align:left;"><div class="comment"></div></div></div>'
-      );
-      modal.find(".comment").append(treeContent);
-
+  function ensureCommentAssets() {
       if (!document.getElementById("rezka-comment-style")) {
         var styleEl = document.createElement("style");
         styleEl.id = "rezka-comment-style";
@@ -485,6 +506,113 @@
           "function ShowOrHide(id){var t=$('#'+id);t.prev('.title_spoiler').remove();t.css('display','inline');}";
         document.head.appendChild(Script);
       }
+  }
+
+  function plainCommentText(textEl) {
+    if (!textEl) return '';
+    var c = textEl.cloneNode(true);
+    var i, list = c.querySelectorAll('.title_spoiler');
+    for (i = 0; i < list.length; i++) list[i].parentNode.removeChild(list[i]);
+    list = c.querySelectorAll('[style]');
+    for (i = 0; i < list.length; i++) {
+      if (/display\s*:\s*none/i.test(list[i].getAttribute('style') || '') && list[i].parentNode) {
+        list[i].parentNode.replaceChild(document.createTextNode(' [спойлер] '), list[i]);
+      }
+    }
+    return (c.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function absUrl(src) {
+    if (!src) return '';
+    if (src.indexOf('//') === 0) return 'https:' + src;
+    if (src.charAt(0) === '/') return getSettings().host + src;
+    return src;
+  }
+
+  function flattenComments(root, out) {
+    for (var i = 0; i < root.children.length && out.length < 100; i++) {
+      var li = root.children[i];
+      var avaImg = li.querySelector('.ava img');
+      var nameEl = li.querySelector('.name, .b-comment__user');
+      var dateEl = li.querySelector('.date, .b-comment__time');
+      var textEl = li.querySelector('.message .text, .text');
+      var plain = plainCommentText(textEl);
+      if (plain) {
+        out.push({
+          avatar: absUrl(avaImg && (avaImg.getAttribute('data-src') || avaImg.getAttribute('src'))),
+          user: (nameEl && nameEl.textContent.replace(/\s+/g, ' ').trim()) || 'Без имени',
+          date: (dateEl && dateEl.textContent.replace(/\s+/g, ' ').trim()) || '',
+          plain: plain,
+          html: (textEl && textEl.innerHTML) || ''
+        });
+      }
+      var children = li.querySelector('ol.comments-tree-list');
+      if (children) flattenComments(children, out);
+    }
+    return out;
+  }
+
+  function buildCommentNodeFromData(c) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'message';
+    wrapper.innerHTML =
+      '<div class="comment-wrap">' +
+        '<div class="avatar-column"><img src="' + c.avatar + '" class="avatar-img" alt=""></div>' +
+        '<div class="comment-card">' +
+          '<div class="comment-header"><span class="name"></span><span class="date"></span></div>' +
+          '<div class="comment-text"><div class="text">' + c.html + '</div></div>' +
+        '</div>' +
+      '</div>';
+    wrapper.querySelector('.name').textContent = c.user;
+    wrapper.querySelector('.date').textContent = c.date;
+    return wrapper;
+  }
+
+  function showRezkaComment(c) {
+    ensureCommentAssets();
+    var ctl = '';
+    try { ctl = Lampa.Controller.enabled().name; } catch (e) {}
+    var body = $('<div><div class="broadcast__text" style="text-align:left;"><div class="comment"></div></div></div>');
+    body.find('.comment').append(buildCommentNodeFromData(c));
+    Lampa.Modal.open({
+      title: c.user,
+      html: body,
+      size: 'medium',
+      mask: true,
+      onBack: function () {
+        Lampa.Modal.close();
+        if (ctl) { try { Lampa.Controller.toggle(ctl); } catch (e) {} }
+      }
+    });
+  }
+
+  function comment_rezka(id, pageUrl, sink) {
+    var settings = getSettings();
+    var host = settings.host;
+    var cookie = settings.cookie;
+    var proxy = settings.proxy;
+    var t = Date.now();
+    var path = host + "/ajax/get_comments/?t=" + t + "&news_id=" + (id ? id : "1") + "&cstart=1&type=0&comment_id=0&skin=hdrezka";
+
+    var commentsUrl = proxy;
+    if (cookie) {
+      commentsUrl += "param/Cookie=" + encodeURIComponent(cookie) + "/";
+    }
+    if (pageUrl) {
+      commentsUrl += "param/Referer=" + encodeURIComponent(pageUrl) + "/";
+    }
+    commentsUrl += path;
+
+    console.log('[RezkaComment] fetching comments from:', commentsUrl);
+
+    function openModal(treeContent) {
+      Lampa.Loading.stop();
+      var modal = $(
+        '<div><div class="broadcast__text" style="text-align:left;"><div class="comment"></div></div></div>'
+      );
+      modal.find(".comment").append(treeContent);
+
+      ensureCommentAssets();
 
       Lampa.Modal.open({
         title: "",
@@ -518,11 +646,11 @@
       return r.text();
     }).then(function (fc) {
       if (hasExplicitBotMarkers(fc)) {
-        Lampa.Loading.stop();
+        if (!sink) Lampa.Loading.stop();
         showCookieExpiredChoice(function () {
-          Lampa.Loading.start();
-          comment_rezka(id, pageUrl);
-        });
+          if (!sink) Lampa.Loading.start();
+          comment_rezka(id, pageUrl, sink);
+        }, sink);
         return;
       }
 
@@ -530,15 +658,12 @@
       try {
         json = JSON.parse(fc);
       } catch (parseErr) {
-        // Ответ не похож на JSON комментариев — вероятно, это HTML-страница
-        // ботозащиты без явных текстовых маркеров. Применяем ту же
-        // эвристику, что и в поиске (в т.ч. проверку на отсутствие куки).
         if (looksLikeBotBlockHtml(fc, !!cookie)) {
-          Lampa.Loading.stop();
+          if (!sink) Lampa.Loading.stop();
           showCookieExpiredChoice(function () {
-            Lampa.Loading.start();
-            comment_rezka(id, pageUrl);
-          });
+            if (!sink) Lampa.Loading.start();
+            comment_rezka(id, pageUrl, sink);
+          }, sink);
           return;
         }
         throw new Error('Не удалось разобрать ответ сервера комментариев');
@@ -557,8 +682,14 @@
       var rootList = dom.querySelector(".comments-tree-list");
       if (!rootList) {
         console.warn('[RezkaComment] comments-tree-list not found in parsed HTML for', id);
+        if (sink) { sink.onComments([]); return; }
         Lampa.Noty.show('Комментарии к фильму/сериалу отсутствуют');
         Lampa.Loading.stop();
+        return;
+      }
+
+      if (sink) {
+        sink.onComments(flattenComments(rootList, []));
         return;
       }
 
@@ -566,17 +697,155 @@
       openModal(newTree);
     }).catch(function (e) {
       console.error('[RezkaComment] comment_rezka error:', e);
-      Lampa.Noty.show('Ошибка получения комментариев: ' + e.message);
-      Lampa.Loading.stop();
+      bgFail(sink, 'Ошибка получения комментариев: ' + e.message);
     });
+  }
+
+  var cubCtx = null;
+
+  function getCommentStyle() {
+    return Lampa.Storage.get('rezka_comment_style', 'button') === 'cub' ? 'cub' : 'button';
+  }
+
+  function cubSupported() {
+    return !!(Lampa.Maker && Lampa.Maker.make && window.Lampa && Lampa.Listener);
+  }
+
+  function cubFooter(inst, c) {
+    var f = inst.html && inst.html.querySelector && inst.html.querySelector('.full-review__footer');
+    if (!f) return;
+    f.innerHTML = '';
+
+    var user = document.createElement('div');
+    user.className = 'full-review__user';
+    var icon = document.createElement('div');
+    icon.className = 'full-review__user-icon';
+    var img = document.createElement('img');
+    img.className = 'full-review__user-img';
+    function loaded() { if (user.className.indexOf('loaded') === -1) user.className += ' loaded'; }
+    img.onload = loaded;
+    img.onerror = function () {
+      img.onerror = null;
+      img.src = './img/actor.svg';
+    };
+    img.src = c.avatar || './img/actor.svg';
+    icon.appendChild(img);
+    var name = document.createElement('div');
+    name.className = 'full-review__user-email';
+    name.textContent = c.user;
+    user.appendChild(icon);
+    user.appendChild(name);
+
+    var like = document.createElement('div');
+    like.className = 'full-review__like';
+    var counter = document.createElement('div');
+    counter.className = 'full-review__like-counter';
+    counter.textContent = (c.date || '').split(',')[0];
+    like.appendChild(counter);
+
+    f.appendChild(user);
+    f.appendChild(like);
+  }
+
+  function cubMakeElement(c, i) {
+    return {
+      id: 'rezka_' + i,
+      email: c.user,
+      comment: c.plain,
+      text: c.plain,
+      liked: 0,
+      params: {
+        createInstance: function (item) {
+          return Lampa.Maker.make('Discuss', item, function (m) { return m.only('Line'); });
+        },
+        emit: {
+          onCreate: function () { cubFooter(this, c); }
+        },
+        on: {
+          'hover:enter': function () { showRezkaComment(c); }
+        }
+      }
+    };
+  }
+
+  function cubApply(ctx) {
+    if (ctx.applied || !ctx.line || !ctx.comments) return;
+    ctx.applied = true;
+    var line = ctx.line;
+    try {
+      var root = line.render(true);
+
+      if (!ctx.comments.length) {
+        if (ctx.placeholder) {
+          var t = root.querySelector('.full-review__text');
+          if (t) t.textContent = 'Комментарии Rezka не найдены';
+        }
+        return;
+      }
+
+      var old = line.items || [];
+      for (var i = 0; i < old.length; i++) {
+        try { old[i].destroy(); } catch (e) {}
+      }
+      line.items = [];
+      line.active = 0;
+      line.more = null;
+      line.scroll.clear();
+
+      var els = [];
+      for (var k = 0; k < ctx.comments.length; k++) els.push(cubMakeElement(ctx.comments[k], k));
+      line.data.results = els;
+      line.data.total_pages = 1;
+
+      var moreBtn = root.querySelector('.items-line__more');
+      if (moreBtn && moreBtn.parentNode) moreBtn.parentNode.removeChild(moreBtn);
+
+      line.emit('scroll');
+    } catch (err) {
+      console.error('[RezkaComment] cub replace error:', err);
+    }
+  }
+
+  function cubOnStart(e) {
+    var data = e.data;
+    var movie = data && data.movie;
+    var ctx = cubCtx = { obj: e.object, started: true, line: null, comments: null, applied: false, placeholder: false };
+    if (!movie) return;
+
+    if (!data.discuss) data.discuss = { result: [], total_pages: 1 };
+    if (!data.discuss.result) data.discuss.result = [];
+    if (!data.discuss.result.length) {
+      data.discuss.result.push({ id: 'rezka-placeholder', email: 'Rezka', comment: 'Загрузка комментариев Rezka…', liked: 0 });
+      ctx.placeholder = true;
+    }
+
+    var yr = 0;
+    if (movie.release_date) yr = movie.release_date.slice(0, 4);
+    else if (movie.first_air_date) yr = movie.first_air_date.slice(0, 4);
+
+    var sink = {
+      onComments: function (list) {
+        if (cubCtx !== ctx) return;
+        ctx.comments = list || [];
+        cubApply(ctx);
+      },
+      onError: function () {
+        if (cubCtx !== ctx) return;
+        ctx.comments = [];
+        cubApply(ctx);
+      }
+    };
+    getEnTitle(movie.id, e.object.method, sink, yr);
+  }
+
+  function cubOnBuild(e) {
+    if (!cubCtx || e.name !== 'discuss') return;
+    cubCtx.line = e.item;
+    cubApply(cubCtx);
   }
 
   function startPlugin() {
     window.comment_plugin = true;
-
-    function generateAuthCode() {
-        return Math.floor(1000 + Math.random() * 9000).toString();
-    }
 
     try {
       Lampa.SettingsApi.addComponent({
@@ -606,18 +875,20 @@
       Lampa.SettingsApi.addParam({
         component: 'rezka_comment',
         param: {
-          name: 'rezka_comment_proxy',
-          type: 'input',
-          placeholder: 'https://ваш-воркер.workers.dev/',
-          values: Lampa.Storage.get('rezka_comment_proxy', 'https://rezka.lampasochka.workers.dev/'),
-          default: 'https://rezka.lampasochka.workers.dev/'
+          name: 'rezka_comment_style',
+          type: 'select',
+          values: {
+            button: 'Кнопка и окно',
+            cub: 'Замена комментариев CUB'
+          },
+          default: 'button'
         },
         field: {
-          name: 'CORS Прокси (Умный)',
-          description: 'URL вашего Cloudflare Worker с поддержкой авторизации (с / на конце)'
+          name: 'Стиль комментариев',
+          description: 'Кнопка на карточке с окном или ряд «Комментарии» как у CUB. Применяется при следующем открытии карточки'
         },
-        onChange: function(value) {
-          Lampa.Storage.set('rezka_comment_proxy', value);
+        onChange: function (value) {
+          Lampa.Storage.set('rezka_comment_style', value);
         }
       });
 
@@ -638,176 +909,58 @@
         }
       });
 
-      function pollAuthCode(proxyUrl, code, statusSelector, waitingText, onSuccess, onTimeout) {
-          var attempts = 0;
-          window.rezkaAuthInterval = setInterval(function() {
-              attempts++;
-              if(attempts > 90) {
-                  clearInterval(window.rezkaAuthInterval);
-                  $(statusSelector).text('Время ожидания истекло. Попробуйте снова.').css('color', '#ff5722');
-                  if (onTimeout) onTimeout();
-                  return;
-              }
-
-              $(statusSelector).text(waitingText + repeatChar('.', attempts % 4));
-
-              $.ajax({
-                  url: proxyUrl + 'check?code=' + code,
-                  type: 'GET',
-                  dataType: 'json',
-                  success: function(d) {
-                      if(d && (d.status === 'success' || d.cookie)) {
-                          clearInterval(window.rezkaAuthInterval);
-                          Lampa.Storage.set('rezka_comment_cookie', d.cookie);
-                          console.log('[RezkaComment] cookie saved:', d.cookie);
-
-                          var tail = (d.cookie || '').slice(-16);
-                          $(statusSelector).html('<span style="color: #4CAF50;">Успешно! Cookie сохранены (…' + tail + ').</span>');
-
-                          try {
-                              $('.settings-param[data-name="rezka_comment_cookie"] .settings-param__value').text(d.cookie);
-                          } catch(e) {}
-
-                          if (onSuccess) setTimeout(onSuccess, 2500);
-                      }
-                  },
-                  error: function() {}
-              });
-          }, 2000);
-      }
-
-      function closeAuthModal(modalClass) {
-          clearInterval(window.rezkaAuthInterval);
-          Lampa.Modal.close();
-          $(modalClass).remove();
-          try {
-              Lampa.Controller.toggle('settings_component');
-          } catch (e) {
-              try { Lampa.Controller.toggle('settings'); } catch (e2) {}
-          }
-      }
-
-      function buildAuthUrl() {
-          var proxyUrl = (Lampa.Storage.get('rezka_comment_proxy', 'https://rezka.lampasochka.workers.dev/') || 'https://rezka.lampasochka.workers.dev/').trim();
-          if(!startsWithHttp(proxyUrl)) {
-              Lampa.Noty.show('Сначала настройте URL прокси-воркера');
-              return null;
-          }
-          if(!endsWithSlash(proxyUrl)) proxyUrl += '/';
-
-          var host = (Lampa.Storage.get('rezka_comment_host', 'https://rezka.ag') || 'https://rezka.ag').trim();
-          var hostBare = host.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
-
-          var code = generateAuthCode();
-          var authUrl = proxyUrl + 'auth/' + code + '/' + encodeURIComponent(hostBare);
-
-          return { proxyUrl: proxyUrl, code: code, authUrl: authUrl };
-      }
-
       Lampa.SettingsApi.addParam({
         component: 'rezka_comment',
         param: {
-          name: 'rezka_auth_qr',
+          name: 'rezka_auth_auto',
           type: 'button'
         },
         field: {
-          name: 'Авторизация через QR-код',
-          description: 'Отсканируйте код телефоном, чтобы автоматически получить Cookie'
+          name: 'Обновить Cookie (автоматически)'
         },
-        onChange: function() {
-            var auth = buildAuthUrl();
-            if (!auth) return;
-
-            var modalHtml = $(
-                '<div style="text-align: center; padding: 20px;">' +
-                    '<div style="margin-bottom: 20px; font-size: 1.2em; color: #fff;">' +
-                        'Отсканируйте код камерой телефона<br>' +
-                        '<span style="font-size: 0.8em; opacity: 0.7;">или перейдите по ссылке:</span><br>' +
-                        '<a href="' + auth.authUrl + '" target="_blank" style="font-size: 0.8em; color: #a335ff; word-break: break-all;">' + auth.authUrl + '</a>' +
-                    '</div>' +
-                    '<div id="rezka_qr_container" style="background: white; padding: 15px; display: inline-block; border-radius: 10px;"></div>' +
-                    '<div id="rezka_qr_status" style="margin-top: 20px; font-size: 1.1em; color: #e5e5e5;">Ожидание сканирования...</div>' +
-                '</div>'
-            );
-
-            function closeThisModal() { closeAuthModal('.modal--medium'); }
-
-            Lampa.Modal.open({
-                title: 'Авторизация HDRezka',
-                html: modalHtml,
-                size: 'medium',
-                mask: true,
-                onBack: closeThisModal
-            });
-
-            var qrImgUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' + encodeURIComponent(auth.authUrl);
-            $('#rezka_qr_container').html(
-                '<img src="' + qrImgUrl + '" width="250" height="250" alt="QR" onerror="this.parentElement.innerHTML=' +
-                "'<div style=\\'color:#333;font-size:0.9em;padding:20px;\\'>Не удалось загрузить QR. Используйте ссылку выше.</div>'" +
-                '">'
-            );
-
-            pollAuthCode(auth.proxyUrl, auth.code, '#rezka_qr_status', 'Ожидание решения защиты на телефоне', closeThisModal, null);
-        }
-      });
-
-      Lampa.SettingsApi.addParam({
-        component: 'rezka_comment',
-        param: {
-          name: 'rezka_auth_tv',
-          type: 'button'
-        },
-        field: {
-          name: 'Пройти проверку в Lampa',
-          description: 'Без телефона — открывает окно проверки в самой Lampa. Может не сработать на слабых/старых ТВ'
-        },
-        onChange: function() {
-            var auth = buildAuthUrl();
-            if (!auth) return;
-
-            var modalHtml = $(
-                '<div style="padding: 10px;">' +
-                    '<iframe src="' + auth.authUrl + '" style="width:100%;height:60vh;border:none;background:#fff;border-radius:6px;"></iframe>' +
-                    '<div id="rezka_tv_status" style="margin-top: 15px; font-size: 1.1em; color: #e5e5e5; text-align:center;">Ожидание прохождения проверки...</div>' +
-                '</div>'
-            );
-
-            function closeThisModal() { closeAuthModal('.modal--large'); }
-
-            Lampa.Modal.open({
-                title: 'Проверка HDRezka',
-                html: modalHtml,
-                size: 'large',
-                mask: true,
-                onBack: closeThisModal
-            });
-
-            pollAuthCode(auth.proxyUrl, auth.code, '#rezka_tv_status', 'Ожидание решения защиты', closeThisModal, null);
+        onChange: function () {
+          solveAnubis(function (c) {
+            try {
+              $('.settings-param[data-name="rezka_comment_cookie"] .settings-param__value').text(c);
+            } catch (e) {}
+          });
         }
       });
     } catch (e) {
       console.error('[RezkaComment] Settings init error:', e);
     }
 
-    Lampa.Listener.follow("full", function (e) {
-      if (e.type == "complite") {
-        $(".button--comment").remove();
-        $(".full-start-new__buttons").append(
-          '<div class="full-start__button selector button--comment"><svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 356.484 356.484"><g><path d="M293.984 7.23H62.5C28.037 7.23 0 35.268 0 69.731v142.78c0 34.463 28.037 62.5 62.5 62.5l147.443.001 70.581 70.58a12.492 12.492 0 0 0 13.622 2.709 12.496 12.496 0 0 0 7.717-11.547v-62.237c30.759-3.885 54.621-30.211 54.621-62.006V69.731c0-34.463-28.037-62.501-62.5-62.501zm37.5 205.282c0 20.678-16.822 37.5-37.5 37.5h-4.621c-6.903 0-12.5 5.598-12.5 12.5v44.064l-52.903-52.903a12.493 12.493 0 0 0-8.839-3.661H62.5c-20.678 0-37.5-16.822-37.5-37.5V69.732c0-20.678 16.822-37.5 37.5-37.5h231.484c20.678 0 37.5 16.822 37.5 37.5v142.78z" fill="currentcolor"/></g></svg><span>' +
-          Lampa.Lang.translate("title_comments") +
-          '</span></div>'
-        );
+    function addCommentButton(e) {
+      $(".button--comment").remove();
+      $(".full-start-new__buttons").append(
+        '<div class="full-start__button selector button--comment"><svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 356.484 356.484"><g><path d="M293.984 7.23H62.5C28.037 7.23 0 35.268 0 69.731v142.78c0 34.463 28.037 62.5 62.5 62.5l147.443.001 70.581 70.58a12.492 12.492 0 0 0 13.622 2.709 12.496 12.496 0 0 0 7.717-11.547v-62.237c30.759-3.885 54.621-30.211 54.621-62.006V69.731c0-34.463-28.037-62.501-62.5-62.501zm37.5 205.282c0 20.678-16.822 37.5-37.5 37.5h-4.621c-6.903 0-12.5 5.598-12.5 12.5v44.064l-52.903-52.903a12.493 12.493 0 0 0-8.839-3.661H62.5c-20.678 0-37.5-16.822-37.5-37.5V69.732c0-20.678 16.822-37.5 37.5-37.5h231.484c20.678 0 37.5 16.822 37.5 37.5v142.78z" fill="currentcolor"/></g></svg><span>' +
+        Lampa.Lang.translate("title_comments") +
+        '</span></div>'
+      );
 
-        $(".button--comment").on("hover:enter", function (card) {
-          year = 0;
-          if (e.data.movie.release_date) {
-            year = e.data.movie.release_date.slice(0, 4);
-          } else if (e.data.movie.first_air_date) {
-            year = e.data.movie.first_air_date.slice(0, 4);
-          }
-          Lampa.Loading.start();
-          getEnTitle(e.data.movie.id, e.object.method);
-        });
+      $(".button--comment").on("hover:enter", function (card) {
+        year = 0;
+        if (e.data.movie.release_date) {
+          year = e.data.movie.release_date.slice(0, 4);
+        } else if (e.data.movie.first_air_date) {
+          year = e.data.movie.first_air_date.slice(0, 4);
+        }
+        Lampa.Loading.start();
+        getEnTitle(e.data.movie.id, e.object.method);
+      });
+    }
+
+    Lampa.Listener.follow("full", function (e) {
+      var cub = getCommentStyle() === 'cub' && cubSupported();
+
+      if (e.type == "start" && cub) {
+        cubOnStart(e);
+      } else if (e.type == "build" && cub) {
+        cubOnBuild(e);
+      } else if (e.type == "complite") {
+        $(".button--comment").remove();
+        if (cub && cubCtx && cubCtx.started && cubCtx.obj === e.object) return;
+        addCommentButton(e);
       }
     });
   }
