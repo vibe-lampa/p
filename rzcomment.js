@@ -295,22 +295,25 @@
   }
 
   function rzPick(items, ye) {
-    var want = parseInt(ye, 10) || 0, i, y, d, best = null, bestDiff = 99;
+    var want = parseInt(ye, 10) || 0, i, y, d, best = null, bestDiff = 99, anyYear = false;
     if (!items.length) return null;
     if (!want) return items[0];
     for (i = 0; i < items.length; i++) {
       y = rzYear(items[i]);
       if (!y) continue;
+      anyYear = true;
       d = Math.abs(y - want);
       if (d < bestDiff) { bestDiff = d; best = items[i]; }
     }
+    if (!anyYear) return items[0];
     return bestDiff <= 1 ? best : null;
   }
 
   function searchRezka(names, ye, sink) {
     if (typeof names === 'string') names = [names];
-    var queries = names.slice(0), idx = 0;
+    var queries = [], idx = 0, fallbackItem = null, i0;
     if (ye && names.length) queries.push(names[0] + ' ' + ye);
+    for (i0 = 0; i0 < names.length; i0++) queries.push(names[i0]);
 
     function buildUrl(qs) {
       var st = getSettings();
@@ -321,15 +324,14 @@
 
     function finish(item) {
       var linkEl = item.querySelector(".b-content__inline_item-link");
-      var a = item.querySelector(".b-content__inline_item-link a") || item.querySelector("a");
-      var nameEl = a || linkEl;
-      namemovie = nameEl ? (nameEl.innerText || nameEl.textContent || "") : "";
-      var itemUrl = (linkEl && linkEl.getAttribute("href")) || (a && a.getAttribute("href")) || item.getAttribute("data-url") || "";
+      namemovie = linkEl ? linkEl.innerText : "";
+      var itemUrl = linkEl ? linkEl.getAttribute("href") : "";
       return comment_rezka(item.dataset.id, itemUrl, sink);
     }
 
     function next() {
       if (idx >= queries.length) {
+        if (fallbackItem) return finish(fallbackItem);
         console.warn('[RezkaComment] show not found on Rezka:', names, ye);
         bgFail(sink, 'Фильм/сериал не найден на Rezka');
         return;
@@ -359,6 +361,7 @@
           return;
         }
 
+        if (items.length && !fallbackItem) fallbackItem = items[0];
         var item = rzPick(items, ye);
         if (item) return finish(item);
         return next();
