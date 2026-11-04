@@ -288,58 +288,90 @@
     return { host: host, cookie: cookie, proxy: proxy };
   }
 
-  function searchRezka(name, ye, sink) {
-    var settings = getSettings();
-    var host = settings.host;
-    var cookie = settings.cookie;
-    var proxy = settings.proxy;
-    var path = host + "/search/?do=search&subaction=search&q=" + encodeURIComponent(name) + (ye ? "+" + ye : "");
-    var searchUrl = proxy;
-    if (cookie) {
-      searchUrl += "param/Cookie=" + encodeURIComponent(cookie) + "/";
-    }
-    searchUrl += path;
-
-    console.log('[RezkaComment] searching hdrezka with url:', searchUrl);
-
-    return fetchCompat(searchUrl, {
-      method: "GET",
-      headers: { "Content-Type": "text/html" }
-    }).then(function (response) {
-      if (!response.ok) {
-        throw new Error('HTTP status ' + response.status);
-      }
-      return response.text();
-    }).then(function (fc) {
-      var dom = new DOMParser().parseFromString(fc, "text/html");
-
-      var item = dom.querySelector(".b-content__inline_item");
-      if (!item) {
-        console.warn('[RezkaComment] show not found on Rezka:', name, ye);
-        if (!sink) Lampa.Loading.stop();
-        if (looksLikeBotBlockHtml(fc, !!cookie)) {
-          showCookieExpiredChoice(function () {
-            if (!sink) Lampa.Loading.start();
-            searchRezka(name, ye, sink);
-          }, sink);
-        } else {
-          bgFail(sink, 'Фильм/сериал не найден на Rezka');
-        }
-        return;
-      }
-
-      var linkEl = item.querySelector(".b-content__inline_item-link");
-      namemovie = linkEl ? linkEl.innerText : "";
-
-      var itemUrl = linkEl ? linkEl.getAttribute("href") : "";
-      return comment_rezka(item.dataset.id, itemUrl, sink);
-    }).catch(function (e) {
-      console.error('[RezkaComment] searchRezka error:', e);
-      bgFail(sink, 'Ошибка поиска на Rezka: ' + e.message);
-    });
+  function rzYear(item) {
+    var d = item.querySelector('.b-content__inline_item-link div');
+    var m = d && (d.textContent || '').match(/(\d{4})/);
+    return m ? parseInt(m[1], 10) : 0;
   }
 
-  function getEnTitle(id, type, sink, yr) {
+  function rzPick(items, ye) {
+    var want = parseInt(ye, 10) || 0, i, y, d, best = null, bestDiff = 99;
+    if (!items.length) return null;
+    if (!want) return items[0];
+    for (i = 0; i < items.length; i++) {
+      y = rzYear(items[i]);
+      if (!y) continue;
+      d = Math.abs(y - want);
+      if (d < bestDiff) { bestDiff = d; best = items[i]; }
+    }
+    return bestDiff <= 1 ? best : null;
+  }
+
+  function searchRezka(names, ye, sink) {
+    if (typeof names === 'string') names = [names];
+    var queries = names.slice(0), idx = 0;
+    if (ye && names.length) queries.push(names[0] + ' ' + ye);
+
+    function buildUrl(qs) {
+      var st = getSettings();
+      var u = st.proxy;
+      if (st.cookie) u += "param/Cookie=" + encodeURIComponent(st.cookie) + "/";
+      return u + st.host + "/search/?do=search&subaction=search&q=" + encodeURIComponent(qs);
+    }
+
+    function finish(item) {
+      var linkEl = item.querySelector(".b-content__inline_item-link");
+      var a = item.querySelector(".b-content__inline_item-link a") || item.querySelector("a");
+      var nameEl = a || linkEl;
+      namemovie = nameEl ? (nameEl.innerText || nameEl.textContent || "") : "";
+      var itemUrl = (linkEl && linkEl.getAttribute("href")) || (a && a.getAttribute("href")) || item.getAttribute("data-url") || "";
+      return comment_rezka(item.dataset.id, itemUrl, sink);
+    }
+
+    function next() {
+      if (idx >= queries.length) {
+        console.warn('[RezkaComment] show not found on Rezka:', names, ye);
+        bgFail(sink, 'Фильм/сериал не найден на Rezka');
+        return;
+      }
+      var qs = queries[idx++];
+      var url = buildUrl(qs);
+      console.log('[RezkaComment] searching hdrezka:', qs, url);
+
+      return fetchCompat(url, {
+        method: "GET",
+        headers: { "Content-Type": "text/html" }
+      }).then(function (response) {
+        if (!response.ok) throw new Error('HTTP status ' + response.status);
+        return response.text();
+      }).then(function (fc) {
+        var dom = new DOMParser().parseFromString(fc, "text/html");
+        var nodes = dom.querySelectorAll(".b-content__inline_item");
+        var items = [], i;
+        for (i = 0; i < nodes.length; i++) items.push(nodes[i]);
+
+        if (!items.length && looksLikeBotBlockHtml(fc, !!getSettings().cookie)) {
+          if (!sink) Lampa.Loading.stop();
+          showCookieExpiredChoice(function () {
+            if (!sink) Lampa.Loading.start();
+            searchRezka(names, ye, sink);
+          }, sink);
+          return;
+        }
+
+        var item = rzPick(items, ye);
+        if (item) return finish(item);
+        return next();
+      }).catch(function (e) {
+        console.error('[RezkaComment] searchRezka error:', e);
+        bgFail(sink, 'Ошибка поиска на Rezka: ' + e.message);
+      });
+    }
+
+    return next();
+  }
+
+  function getEnTitle(id, type, sink, yr, movie) {
     var tmdbType = type === 'movie' ? 'movie' : 'tv';
     var tmdbCacheKey = tmdbType + '_' + id;
 
@@ -369,6 +401,8 @@
           fallbackTitle = (data && data.title) || (data && data.name) || (data && data.original_title) || (data && data.original_name) || '';
         }
         window.__tmdbFallbackTitleCache[tmdbCacheKey] = fallbackTitle;
+        window.__rzOrigCache = window.__rzOrigCache || {};
+        window.__rzOrigCache[tmdbCacheKey] = (data && (data.original_title || data.original_name)) || '';
 
         console.log('[RezkaComment] TMDB raw response for', tmdbCacheKey, data);
         return tr;
@@ -376,25 +410,45 @@
     }
 
     return trPromise.then(function (tr) {
-      var enTitle = '';
-      var enList = tr.filter(function (t) {
-        return t.iso_639_1 === 'en';
-      });
-      for (var i = 0; i < enList.length; i++) {
-        var cand = enList[i];
-        var candTitle = (cand && cand.data && cand.data.title) || (cand && cand.data && cand.data.name);
-        if (candTitle) {
-          enTitle = candTitle;
-          break;
+      var names = [], extra = [], seen = {};
+
+      function add(raw) {
+        if (!raw) return;
+        raw = String(raw);
+        var n = normalizeTitle(raw);
+        if (n.length < 2 || !/[a-z\u0430-\u044f0-9]/i.test(n)) return;
+        if (!seen[n]) { seen[n] = 1; names.push(n); }
+        var ci = raw.indexOf(':');
+        if (ci > 3) {
+          var pre = normalizeTitle(raw.slice(0, ci));
+          if (pre.length >= 4 && !seen[pre]) { seen[pre] = 1; extra.push(pre); }
         }
       }
-      if (!enTitle) enTitle = fallbackTitle;
 
-      if (enTitle) {
-        return searchRezka(normalizeTitle(enTitle), yr !== undefined ? yr : year, sink);
+      var i, cand;
+      for (i = 0; i < tr.length; i++) {
+        if (tr[i].iso_639_1 !== 'en') continue;
+        cand = tr[i] && tr[i].data;
+        add(cand && (cand.title || cand.name));
+      }
+      add(fallbackTitle);
+      add(movie && (movie.original_title || movie.original_name));
+      add(window.__rzOrigCache && window.__rzOrigCache[tmdbCacheKey]);
+      for (i = 0; i < tr.length; i++) {
+        if (tr[i].iso_639_1 !== 'ru') continue;
+        cand = tr[i] && tr[i].data;
+        add(cand && (cand.title || cand.name));
+      }
+      add(movie && (movie.title || movie.name));
+
+      names = names.concat(extra).slice(0, 6);
+
+      if (names.length) {
+        console.log('[RezkaComment] search candidates:', names);
+        return searchRezka(names, yr !== undefined ? yr : year, sink);
       } else {
-        console.warn('[RezkaComment] English title not found for', tmdbCacheKey, tr, 'fallbackTitle:', fallbackTitle);
-        bgFail(sink, 'Английское название не найдено');
+        console.warn('[RezkaComment] title not found for', tmdbCacheKey, tr);
+        bgFail(sink, 'Название не найдено');
       }
     }).catch(function (e) {
       console.error('[RezkaComment] TMDB error', e);
@@ -893,7 +947,7 @@
         cubApply(ctx);
       }
     };
-    getEnTitle(movie.id, e.object.method, sink, yr);
+    getEnTitle(movie.id, e.object.method, sink, yr, movie);
   }
 
   function cubOnBuild(e) {
@@ -1004,7 +1058,7 @@
           year = e.data.movie.first_air_date.slice(0, 4);
         }
         Lampa.Loading.start();
-        getEnTitle(e.data.movie.id, e.object.method);
+        getEnTitle(e.data.movie.id, e.object.method, undefined, undefined, e.data.movie);
       });
     }
 
