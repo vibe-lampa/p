@@ -344,9 +344,23 @@
         method: "GET",
         headers: { "Content-Type": "text/html" }
       }).then(function (response) {
-        if (!response.ok) throw new Error('HTTP status ' + response.status);
+        if (!response.ok) {
+          return response.text().then(function (body) {
+            console.warn('[RezkaComment] search HTTP', response.status, String(body).slice(0, 300));
+            if (response.status >= 500 || response.status === 403) {
+              if (!sink) Lampa.Loading.stop();
+              showCookieExpiredChoice(function () {
+                if (!sink) Lampa.Loading.start();
+                searchRezka(names, ye, sink);
+              }, sink);
+              return null;
+            }
+            throw new Error('HTTP status ' + response.status);
+          });
+        }
         return response.text();
       }).then(function (fc) {
+        if (fc === null) return;
         var dom = new DOMParser().parseFromString(fc, "text/html");
         var nodes = dom.querySelectorAll(".b-content__inline_item");
         var items = [], i;
@@ -448,7 +462,10 @@
 
       if (names.length) {
         console.log('[RezkaComment] search candidates:', names);
-        return searchRezka(names, yr !== undefined ? yr : year, sink);
+        var useYear = yr;
+        if (!useYear && movie) useYear = (movie.release_date || movie.first_air_date || '').slice(0, 4);
+        if (!useYear) useYear = year;
+        return searchRezka(names, useYear, sink);
       } else {
         console.warn('[RezkaComment] title not found for', tmdbCacheKey, tr);
         bgFail(sink, 'Название не найдено');
@@ -713,10 +730,23 @@
       headers: { "Content-Type": "text/plain" }
     }).then(function (r) {
       if (!r.ok) {
-        throw new Error('HTTP status ' + r.status);
+        return r.text().then(function (body) {
+          console.warn('[RezkaComment] comments HTTP', r.status, String(body).slice(0, 300));
+          if (pageUrl) { comment_rezka(id, '', sink); return null; }
+          if (r.status >= 500 || r.status === 403) {
+            if (!sink) Lampa.Loading.stop();
+            showCookieExpiredChoice(function () {
+              if (!sink) Lampa.Loading.start();
+              comment_rezka(id, '', sink);
+            }, sink);
+            return null;
+          }
+          throw new Error('HTTP status ' + r.status);
+        });
       }
       return r.text();
     }).then(function (fc) {
+      if (fc === null) return;
       if (hasExplicitBotMarkers(fc)) {
         if (!sink) Lampa.Loading.stop();
         showCookieExpiredChoice(function () {
