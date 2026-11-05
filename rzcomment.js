@@ -617,7 +617,7 @@
     return src;
   }
 
-  function flattenComments(root, out, depth) {
+  function flattenComments(root, out, depth, parent) {
     for (var i = 0; i < root.children.length && out.length < 100; i++) {
       var li = root.children[i];
       var avaImg = li.querySelector('.ava img');
@@ -625,18 +625,21 @@
       var dateEl = li.querySelector('.date, .b-comment__time');
       var textEl = li.querySelector('.message .text, .text');
       var plain = plainCommentText(textEl);
+      var cur = null;
       if (plain) {
-        out.push({
+        cur = {
           avatar: absUrl(avaImg && (avaImg.getAttribute('data-src') || avaImg.getAttribute('src'))),
           user: (nameEl && nameEl.textContent.replace(/\s+/g, ' ').trim()) || 'Без имени',
           date: ((dateEl && dateEl.textContent) || '').replace(/\s+/g, ' ').replace(/^\s*оставлен\s*/i, '').replace(/\s*,?\s*(\d{1,2}:\d{2})\s*$/, ' · $1').trim(),
           reply: (depth || 0) > 0,
           plain: plain,
-          html: (textEl && textEl.innerHTML) || ''
-        });
+          html: (textEl && textEl.innerHTML) || '',
+          parent: parent || null
+        };
+        out.push(cur);
       }
       var children = li.querySelector('ol.comments-tree-list');
-      if (children) flattenComments(children, out, (depth || 0) + 1);
+      if (children) flattenComments(children, out, (depth || 0) + 1, cur || parent);
     }
     return out;
   }
@@ -661,8 +664,23 @@
     ensureCommentAssets();
     var ctl = '';
     try { ctl = Lampa.Controller.enabled().name; } catch (e) {}
+    ensureCubStyles();
     var body = $('<div><div class="broadcast__text" style="text-align:left;"><div class="comment"></div></div></div>');
-    body.find('.comment').append(buildCommentNodeFromData(c));
+    var box = body.find('.comment');
+    if (c.parent) {
+      var label = document.createElement('div');
+      label.className = 'rz-parent-label';
+      label.textContent = 'В ответ на комментарий:';
+      box.append(label);
+      var pn = buildCommentNodeFromData(c.parent);
+      pn.classList.add('rz-parent-node');
+      box.append(pn);
+      var label2 = document.createElement('div');
+      label2.className = 'rz-parent-label';
+      label2.textContent = 'Ответ:';
+      box.append(label2);
+    }
+    box.append(buildCommentNodeFromData(c));
     Lampa.Modal.open({
       title: c.user,
       html: body,
@@ -831,7 +849,9 @@
       '.rz-date{margin-top:.15em;font-size:.78em;opacity:.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
       '.rz-tags{flex:none;margin-left:.8em;display:flex;align-items:center}' +
       '.rz-tag{padding:.25em .7em;border-radius:1em;background:rgba(255,255,255,.1);font-size:.8em;white-space:nowrap}' +
-      '.rz-tag+.rz-tag{margin-left:.4em}';
+      '.rz-tag+.rz-tag{margin-left:.4em}' +
+      '.rz-parent-label{margin:.6em 0 .3em;font-size:.8em;opacity:.55}' +
+      '.rz-parent-node{opacity:.85;padding-left:.8em;border-left:.15em solid rgba(255,255,255,.25)}';
     document.head.appendChild(s);
   }
 
